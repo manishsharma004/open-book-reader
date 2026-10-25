@@ -58,7 +58,7 @@ Summary of the most important changes:
 | F11 | Medium | PDF.js returns text items (runs), not words. Word boxes were assumed | Split items with `Intl.Segmenter`, apportion boxes by measured substring widths | `DESIGN.md` §6.2 |
 | F12 | Medium | Metadata as one call over the book does not fit small context windows | Map-reduce sized by `contextTokens`; bibliographic fields from front matter only | `DESIGN.md` §6.4 |
 | F13 | Medium | Speech vendors have hard input limits (OpenAI 4,096 characters, Google 5,000 bytes, Gemini 8,192 tokens) | Utterances respect `maxInputChars` | `DESIGN.md` §7.2, `PROVIDERS.md` §6 |
-| F14 | Medium | OpenAI lists `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts` for shutdown on January 6, 2027 | Speech model is a setting, the change invalidates cached audio through the utterance key, and the default vendor is an open question | `PROVIDERS.md` §6, `DESIGN.md` §14 |
+| F14 | Medium | OpenAI lists `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts` for shutdown on January 6, 2027 | Speech model is a setting and is part of the utterance key. The default engine is Kokoro, not OpenAI speech | `PROVIDERS.md` §6, `DESIGN.md` §12 |
 | F15 | Medium | Anthropic API version `2026-10-21` sends the key as `Authorization: Bearer` and rejects `temperature`, `top_p`, and `top_k` | Adapter sends Bearer by default and omits sampling parameters | `PROVIDERS.md` §1.2, §5 |
 | F16 | Medium | Structured output differs per vendor; some have none (DeepSeek `json_object`, Ollama cloud) | `structuredOutput` per assignment, chosen by the probe; the browser always validates | `PROVIDERS.md` §5 |
 | F17 | Medium | Web Speech `boundary` events are not fired by some voices and platforms (Chrome on Android, Google network voices), and its audio cannot be recorded | The browser voice is a labeled preview with sentence highlight when boundaries are missing and no offline audio | `DESIGN.md` §7.7 |
@@ -115,7 +115,7 @@ Summary of the most important changes:
 
 | Item | Why it stays | Where |
 | --- | --- | --- |
-| Whole-book Ready gate before play | It is the original request. Playing chapter 1 while later chapters process would start listening sooner, and is listed as an open question | `DESIGN.md` §14 |
+| Whole-book Ready gate before play | It is the original request, and it is now a decision. Playing chapter 1 while later chapters process would start listening sooner | `DESIGN.md` §6.5, §14 |
 | PDF first, EPUB later | Fixed pages make stable highlight positions. EPUB needs a pagination step | `DESIGN.md` §6.1 |
 | No server-side cache | A cache keyed by text would make the server hold book content. The browser cache already dedupes | `DESIGN.md` §4.2 |
 | API keys in IndexedDB in plain form | Encrypting with a key stored next to it adds nothing. A passphrase lock is possible later; the defense now is a strict CSP and no third-party scripts | `DESIGN.md` §10 |
@@ -134,3 +134,21 @@ These are feasible on paper and need measurement before implementation is planne
 | Alignment quality from recognized words | Compare against Kokoro or Google word timings on the same audio |
 | Emotion control is audible and not distracting | Blind listening test, Off versus Subtle versus Full |
 | Storage on iOS Home Screen apps | Store 500 MB of audio, close for a week, check it is still there |
+
+## 8. Decisions on the open questions
+
+The questions in the earlier `DESIGN.md` §14 are decided in the current §14. Short form:
+
+| ID | Decision |
+| --- | --- |
+| D1 | PDF only until EPUB has a pagination step |
+| D2 | Whole-book Ready gate stays |
+| D3 | Chapter headings spoken once; **Speak headings** defaults on |
+| D4 | Word highlight is the bar when timings exist |
+| D5 | One voice. `speaker` does not select a voice |
+| D6 | 200 MB of prepared audio per book; keep the previous, current, and next chapter under pressure |
+| D7 | Chapter review is after Ready and does not block play |
+| D8 | Tables are not spoken; the player shows **Table, not read** |
+| D9 | Vision retry is off until the reader opts in per book |
+| D10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs |
+| D11 | Kokoro runs as its own compose service. It is not baked into the app image, and no text model is bundled |

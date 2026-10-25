@@ -55,7 +55,7 @@ def issue_body() -> str:
         f"This body mirrors [`DESIGN.md`]({BLOB}/DESIGN.md). "
         "The other spec files are mirrored in comments on this issue, each starting with its path:\n\n"
         f"{comment_list}\n\n"
-        "Comment on the open questions in DESIGN.md section 14. Library and model choices are a suggestion. "
+        "Decisions are in DESIGN.md section 14. Comment here if one of them should change. Library and model choices are a suggestion. "
         "Browser-owned data in IndexedDB, a stateless proxy that forwards each request to the vendor in the "
         "request's profile, and vendor settings stored in the browser are constraints.\n\n"
         "---\n\n"
