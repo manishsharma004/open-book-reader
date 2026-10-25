@@ -1,4 +1,4 @@
-import { readPage } from '#lib/ocr.js';
+import { cancelOcr, readPage } from '#lib/ocr.js';
 import { logPipeline } from '#lib/pipeline.svelte.js';
 import { canonEmotion, PROSODY } from '#lib/speech.js';
 import {
@@ -51,6 +51,8 @@ type Job = {
 	settings: AppSettings;
 	key: string;
 	lead: boolean;
+	cancelled: boolean;
+	settled: boolean;
 	promise: Promise<PreparedPage>;
 	resolve: (page: PreparedPage) => void;
 	reject: (error: unknown) => void;
@@ -59,12 +61,15 @@ type Job = {
 const cache = new Map<string, PreparedPage>();
 let speechToken = 0;
 let speechPumping = false;
+let workAbort = new AbortController();
 const droppedPages = new WeakSet<PreparedPage>();
 type SpeechTask = { page: PreparedPage; clip: SpeechClip; settings: AppSettings; token: number };
 let speechQueue: SpeechTask[] = [];
 let jobs: Job[] = [];
 let activeKey: string | null = null;
 let activePromise: Promise<PreparedPage> | null = null;
+let activeJob: Job | null = null;
+let activeClip: SpeechClip | null = null;
 let pumping = false;
 let pdf: PDFDocumentProxy | null = null;
 const listeners = new Set<() => void>();
@@ -103,6 +108,35 @@ export function cacheKey(index: number, settings: AppSettings) {
 	});
 }
 
+function isAbort(error: unknown) {
+	return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function settleReject(job: Job, error: unknown) {
+	if (job.settled) return;
+	job.settled = true;
+	job.reject(error);
+}
+
+function settleResolve(job: Job, page: PreparedPage) {
+	if (job.settled) return;
+	job.settled = true;
+	job.resolve(page);
+}
+
+function abortPending() {
+	workAbort.abort();
+	workAbort = new AbortController();
+	speechToken += 1;
+	cancelOcr();
+	if (activeJob) activeJob.cancelled = true;
+	if (activeClip && activeClip.state === 'working') {
+		activeClip.state = 'pending';
+		activeClip.error = null;
+	}
+	speechQueue = [];
+}
+
 function release(page: PreparedPage) {
 	droppedPages.add(page);
 	speechQueue = speechQueue.filter((task) => task.page !== page);
@@ -116,9 +150,8 @@ function release(page: PreparedPage) {
 
 export function attachDocument(next: PDFDocumentProxy | null) {
 	pdf = next;
-	speechToken += 1;
-	speechQueue = [];
-	for (const job of jobs) job.reject(new DOMException('Skipped', 'AbortError'));
+	abortPending();
+	for (const job of jobs) settleReject(job, new DOMException('Skipped', 'AbortError'));
 	jobs = [];
 	for (const page of cache.values()) release(page);
 	cache.clear();
@@ -152,7 +185,7 @@ function enqueue(index: number, settings: AppSettings, front: boolean): Promise<
 		}
 		return queued.promise;
 	}
-	if (activeKey === key && activePromise) return activePromise;
+	if (activeKey === key && activePromise && activeJob && !activeJob.cancelled) return activePromise;
 	let resolve: (page: PreparedPage) => void = () => {};
 	let reject: (error: unknown) => void = () => {};
 	const promise = new Promise<PreparedPage>((resolvePromise, rejectPromise) => {
@@ -160,7 +193,7 @@ function enqueue(index: number, settings: AppSettings, front: boolean): Promise<
 		reject = rejectPromise;
 	});
 	promise.catch(() => {});
-	const job: Job = { index, settings, key, lead: front, promise, resolve, reject };
+	const job: Job = { index, settings, key, lead: front, cancelled: false, settled: false, promise, resolve, reject };
 	if (front) jobs.unshift(job);
 	else jobs.push(job);
 	emit();
@@ -187,20 +220,26 @@ async function pump() {
 			const job = jobs.shift()!;
 			const hit = cache.get(job.key);
 			if (hit) {
-				job.resolve(hit);
+				settleResolve(job, hit);
 				emit();
 				continue;
 			}
 			activeKey = job.key;
 			activePromise = job.promise;
+			activeJob = job;
+			const signal = workAbort.signal;
 			emit();
 			try {
-				const page = await doPrepare(job.index, job.settings, job.lead);
-				remember(job.key, page);
-				job.resolve(page);
+				const page = await doPrepare(job.index, job.settings, job.lead, signal);
+				if (job.cancelled || signal.aborted) settleReject(job, new DOMException('Skipped', 'AbortError'));
+				else {
+					remember(job.key, page);
+					settleResolve(job, page);
+				}
 			} catch (error) {
-				job.reject(error);
+				settleReject(job, error);
 			} finally {
+				if (activeJob === job) activeJob = null;
 				activeKey = null;
 				activePromise = null;
 				emit();
@@ -218,13 +257,12 @@ export function warm(current: number, pageCount: number, settings: AppSettings) 
 		const index = current + offset;
 		if (index < pageCount) wanted.push(index);
 	}
-	const wantedSet = new Set(wanted);
-	speechQueue = speechQueue.filter((task) => wantedSet.has(task.page.pageIndex));
+	abortPending();
 	const keep = new Set(wanted.map((index) => cacheKey(index, settings)));
 	const kept: Job[] = [];
 	for (const job of jobs) {
 		if (keep.has(job.key)) kept.push(job);
-		else job.reject(new DOMException('Skipped', 'AbortError'));
+		else settleReject(job, new DOMException('Skipped', 'AbortError'));
 	}
 	jobs = kept;
 	for (const index of wanted) enqueue(index, settings, false);
@@ -310,7 +348,14 @@ function makeClips(words: PageWord[], clauses: Clause[]): SpeechClip[] {
 	}));
 }
 
-async function speakClip(settings: AppSettings, clip: SpeechClip, pageNumber: number, which: number, total: number) {
+async function speakClip(
+	settings: AppSettings,
+	clip: SpeechClip,
+	pageNumber: number,
+	which: number,
+	total: number,
+	signal: AbortSignal
+) {
 	const started = performance.now();
 	logPipeline({
 		page: pageNumber,
@@ -321,6 +366,7 @@ async function speakClip(settings: AppSettings, clip: SpeechClip, pageNumber: nu
 	});
 	const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
 	const sample = useSample ? await voiceSample(settings) : undefined;
+	if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
 	const sampleBase64 = sample ? await blobToBase64(sample) : null;
 	const result = await speak(
 		settings.tts,
@@ -329,8 +375,10 @@ async function speakClip(settings: AppSettings, clip: SpeechClip, pageNumber: nu
 		`${PROSODY[clip.emotion].instruction} Say: ${clip.text}`,
 		sampleBase64,
 		Boolean(sample),
-		sample?.type || null
+		sample?.type || null,
+		signal
 	);
+	if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
 	clip.audioUrl = URL.createObjectURL(result.blob);
 	clip.timings = result.words
 		? result.words.map((word, index) => ({
@@ -374,7 +422,9 @@ async function pumpSpeech() {
 			const task = speechQueue.shift();
 			if (!task || task.token !== speechToken || droppedPages.has(task.page)) continue;
 			if (task.clip.state !== 'pending') continue;
+			const signal = workAbort.signal;
 			task.clip.state = 'working';
+			activeClip = task.clip;
 			emit();
 			try {
 				await speakClip(
@@ -382,20 +432,43 @@ async function pumpSpeech() {
 					task.clip,
 					task.page.pageIndex + 1,
 					task.page.clips.indexOf(task.clip) + 1,
-					task.page.clips.length
+					task.page.clips.length,
+					signal
 				);
+				if (signal.aborted || task.token !== speechToken) throw new DOMException('Skipped', 'AbortError');
 				if (task.clip.wordStart === 0) task.page.audioUrl = task.clip.audioUrl;
 			} catch (error) {
-				task.clip.state = 'error';
-				task.clip.error = error instanceof Error ? error.message : 'Speech failed';
-				task.page.note = task.clip.error;
-				logPipeline({
-					page: task.page.pageIndex + 1,
-					stage: 'tts',
-					status: 'error',
-					ms: null,
-					detail: `${task.clip.error} Playback uses the browser voice if no clip is ready.`
-				});
+				if (signal.aborted || isAbort(error)) {
+					if (task.clip.audioUrl && task.clip.state !== 'ready') {
+						URL.revokeObjectURL(task.clip.audioUrl);
+						task.clip.audioUrl = null;
+						task.clip.timings = null;
+					}
+					if (task.clip.state === 'working') {
+						task.clip.state = 'pending';
+						task.clip.error = null;
+					}
+					logPipeline({
+						page: task.page.pageIndex + 1,
+						stage: 'tts',
+						status: 'skip',
+						ms: null,
+						detail: 'Left the page. This line was aborted.'
+					});
+				} else {
+					task.clip.state = 'error';
+					task.clip.error = error instanceof Error ? error.message : 'Speech failed';
+					task.page.note = task.clip.error;
+					logPipeline({
+						page: task.page.pageIndex + 1,
+						stage: 'tts',
+						status: 'error',
+						ms: null,
+						detail: `${task.clip.error} Playback uses the browser voice if no clip is ready.`
+					});
+				}
+			} finally {
+				if (activeClip === task.clip) activeClip = null;
 			}
 			emit();
 		}
@@ -405,7 +478,7 @@ async function pumpSpeech() {
 	}
 }
 
-async function doPrepare(index: number, settings: AppSettings, lead: boolean): Promise<PreparedPage> {
+async function doPrepare(index: number, settings: AppSettings, lead: boolean, signal: AbortSignal): Promise<PreparedPage> {
 	if (!pdf) throw new Error('The book is not open.');
 	const pageNumber = index + 1;
 	const started = performance.now();
@@ -415,6 +488,7 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean): P
 	try {
 		extracted = await readPage(pdfPage, settings.ocrLanguage || 'eng', pageNumber);
 	} catch (error) {
+		if (signal.aborted || isAbort(error)) throw new DOMException('Skipped', 'AbortError');
 		const detail = error instanceof Error ? error.message : `OCR failed: ${String(error)}`;
 		logPipeline({ page: pageNumber, stage: 'ocr', status: 'error', ms: Math.round(performance.now() - started), detail });
 		return {
@@ -450,72 +524,7 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean): P
 		});
 	}
 
-	let clauses = oneClause(extracted.words, extracted.text, settings.emotion === 'auto' ? 'neutral' : canonEmotion(settings.emotion));
-	const endpoint = settings.emotion === 'auto' ? emotionEndpoint(settings) : null;
-	if (settings.emotion !== 'auto') {
-		logPipeline({
-			page: pageNumber,
-			stage: 'emotion',
-			status: 'skip',
-			ms: 0,
-			detail: `Emotion is set to ${settings.emotion}. No model call. ${PROSODY[canonEmotion(settings.emotion)].instruction}`
-		});
-	} else if (!endpoint) {
-		logPipeline({
-			page: pageNumber,
-			stage: 'emotion',
-			status: 'skip',
-			ms: 0,
-			detail: 'Emotion analysis and VLLM are off. The page stays neutral until you pick an emotion or enable a model in Settings.'
-		});
-	} else if (!extracted.text) {
-		logPipeline({ page: pageNumber, stage: 'emotion', status: 'skip', ms: 0, detail: 'No words to mark.' });
-	} else {
-		const emotionStarted = performance.now();
-		logPipeline({
-			page: pageNumber,
-			stage: 'emotion',
-			status: 'start',
-			ms: null,
-			detail: `POST /v1/complete → ${hostOf(endpoint.baseUrl)} model ${endpoint.model || '(empty)'}`
-		});
-		try {
-			const content = await complete(
-				endpoint,
-				'You mark emotions for a text-to-speech reader. Reply with JSON only: {"clauses":[{"text":"...","emotion":"neutral"}]} . Emotions: neutral, calm, warm, tense, somber, excited, whispered, angry. Keep every word in order. Do not add, drop, or replace words. Split at sentence boundaries.',
-				extracted.text.slice(0, 12000)
-			);
-			const parsed = parseEmotionJson(content);
-			const aligned = parsed ? alignClauses(extracted.words, parsed) : null;
-			if (!aligned) {
-				logPipeline({
-					page: pageNumber,
-					stage: 'emotion',
-					status: 'error',
-					ms: Math.round(performance.now() - emotionStarted),
-					detail: `The model JSON did not match the page words. Speaking the page as neutral. ${content.slice(0, 700)}`
-				});
-			} else {
-				clauses = aligned;
-				logPipeline({
-					page: pageNumber,
-					stage: 'emotion',
-					status: 'ok',
-					ms: Math.round(performance.now() - emotionStarted),
-					detail: aligned.map((clause) => `${clause.emotion}: ${clause.text}`).join(' | ').slice(0, 1200)
-				});
-			}
-		} catch (error) {
-			logPipeline({
-				page: pageNumber,
-				stage: 'emotion',
-				status: 'error',
-				ms: Math.round(performance.now() - emotionStarted),
-				detail: error instanceof Error ? error.message : 'Emotion request failed'
-			});
-		}
-	}
-
+	const clauses = oneClause(extracted.words, extracted.text, settings.emotion === 'auto' ? 'neutral' : canonEmotion(settings.emotion));
 	const clips = extracted.text ? makeClips(extracted.words, clauses) : [];
 	let note: string | null = null;
 	if (settings.tts.vendor === 'browser') {
@@ -547,6 +556,7 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean): P
 			detail: `Page ${pageNumber} is ready. Lookahead is ${settings.lookahead} pages. ${readyCount}`
 	});
 
+	if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
 	const page: PreparedPage = {
 		pageIndex: index,
 		source: extracted.source,
@@ -560,7 +570,90 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean): P
 		note
 	};
 	if (settings.tts.vendor !== 'browser') bufferSpeech(page, settings, 0, lead);
+	void applyEmotion(page, settings, signal);
 	return page;
+}
+
+function applyEmotion(page: PreparedPage, settings: AppSettings, signal: AbortSignal) {
+	const pageNumber = page.pageIndex + 1;
+	const endpoint = settings.emotion === 'auto' ? emotionEndpoint(settings) : null;
+	if (settings.emotion !== 'auto') {
+		logPipeline({
+			page: pageNumber,
+			stage: 'emotion',
+			status: 'skip',
+			ms: 0,
+			detail: `Emotion is set to ${settings.emotion}. No model call. ${PROSODY[canonEmotion(settings.emotion)].instruction}`
+		});
+		return Promise.resolve();
+	}
+	if (!endpoint) {
+		logPipeline({
+			page: pageNumber,
+			stage: 'emotion',
+			status: 'skip',
+			ms: 0,
+			detail: 'Emotion analysis and VLLM are off. The page stays neutral until you pick an emotion or enable a model in Settings.'
+		});
+		return Promise.resolve();
+	}
+	if (!page.text) {
+		logPipeline({ page: pageNumber, stage: 'emotion', status: 'skip', ms: 0, detail: 'No words to mark.' });
+		return Promise.resolve();
+	}
+	if (signal.aborted || droppedPages.has(page)) return Promise.resolve();
+	const emotionStarted = performance.now();
+	logPipeline({
+		page: pageNumber,
+		stage: 'emotion',
+		status: 'start',
+		ms: null,
+		detail: `POST /v1/complete → ${hostOf(endpoint.baseUrl)} model ${endpoint.model || '(empty)'}`
+	});
+	return complete(
+		endpoint,
+		'You mark emotions for a text-to-speech reader. Reply with JSON only: {"clauses":[{"text":"...","emotion":"neutral"}]} . Emotions: neutral, calm, warm, tense, somber, excited, whispered, angry. Keep every word in order. Do not add, drop, or replace words. Split at sentence boundaries.',
+		page.text.slice(0, 12000),
+		signal
+	)
+		.then((content) => {
+			if (signal.aborted || droppedPages.has(page)) return;
+			const parsed = parseEmotionJson(content);
+			const aligned = parsed ? alignClauses(page.words, parsed) : null;
+			if (!aligned) {
+				logPipeline({
+					page: pageNumber,
+					stage: 'emotion',
+					status: 'error',
+					ms: Math.round(performance.now() - emotionStarted),
+					detail: `The model JSON did not match the page words. Speaking the page as neutral. ${content.slice(0, 700)}`
+				});
+				return;
+			}
+			page.clauses = aligned;
+			for (const clip of page.clips) {
+				if (clip.state !== 'pending') continue;
+				clip.emotion = emotionAt(page.clauses, clip.wordStart);
+			}
+			logPipeline({
+				page: pageNumber,
+				stage: 'emotion',
+				status: 'ok',
+				ms: Math.round(performance.now() - emotionStarted),
+				detail: aligned.map((clause) => `${clause.emotion}: ${clause.text}`).join(' | ').slice(0, 1200)
+			});
+			emit();
+		})
+		.catch((error) => {
+			if (signal.aborted || isAbort(error)) return;
+			logPipeline({
+				page: pageNumber,
+				stage: 'emotion',
+				status: 'error',
+				ms: Math.round(performance.now() - emotionStarted),
+				detail: error instanceof Error ? error.message : 'Emotion request failed'
+			});
+		});
 }
 
 function bufferReadyCount(index: number, settings: AppSettings) {

@@ -6,6 +6,15 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 const SPARSE_WORD_COUNT = 8;
 let worker: Worker | null = null;
 let workerLanguage = '';
+let ocrEpoch = 0;
+
+export function cancelOcr() {
+	ocrEpoch += 1;
+	const current = worker;
+	worker = null;
+	workerLanguage = '';
+	if (current) void current.terminate().catch(() => {});
+}
 
 function asset(file: string) {
 	const base = import.meta.env.BASE_URL || '/';
@@ -38,7 +47,9 @@ export async function readPage(
 	language: string,
 	pageNumber: number
 ): Promise<PageText & { source: 'text' | 'ocr'; confidence: number | null }> {
+	const epoch = ocrEpoch;
 	const extracted = await pageWords(page);
+	if (epoch !== ocrEpoch) throw new DOMException('Skipped', 'AbortError');
 	if (extracted.words.length >= SPARSE_WORD_COUNT) {
 		return { ...extracted, source: 'text', confidence: null };
 	}
@@ -51,8 +62,11 @@ export async function readPage(
 	const canvasContext = canvas.getContext('2d');
 	if (!canvasContext) throw new Error('Could not draw the page for OCR.');
 	await page.render({ canvas, canvasContext, viewport }).promise;
+	if (epoch !== ocrEpoch) throw new DOMException('Skipped', 'AbortError');
 	const engine = await workerFor(language, pageNumber);
+	if (epoch !== ocrEpoch) throw new DOMException('Skipped', 'AbortError');
 	const result = await engine.recognize(canvas, {}, { text: true, blocks: true });
+	if (epoch !== ocrEpoch) throw new DOMException('Skipped', 'AbortError');
 	const blocks = result.data.blocks ?? [];
 	const recognized = blocks.flatMap((block) =>
 		block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words))

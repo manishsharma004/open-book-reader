@@ -1,9 +1,13 @@
 """Pocket speech stays on port 7508 and the sample is a form file, not a URL."""
 
+import asyncio
 import base64
+import contextlib
 import importlib.util
+import threading
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 
 from open_book.main import app
@@ -146,7 +150,7 @@ class _Fake:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | None, bytes]] = []
 
-    def speak(self, text: str, voice_name: str | None, voice_file: Path | None) -> bytes:
+    def speak(self, text: str, voice_name: str | None, voice_file: Path | None, stop: threading.Event | None = None) -> bytes:
         payload = voice_file.read_bytes() if voice_file else b""
         self.calls.append((text, voice_name, payload))
         return pocket_app.wav_from_float([0.0, 0.5, -0.5], 8000)
@@ -187,3 +191,92 @@ def test_service_form_keeps_the_sample_and_refuses_urls():
     default = client.post("/tts", data={"text": "Default"})
     assert default.status_code == 200
     assert fake.calls[-1] == ("Default", None, b"")
+
+
+def test_tts_hands_generation_a_stop_event():
+    seen: dict[str, object] = {}
+
+    class Fake:
+        def speak(self, text: str, voice_name: str | None, voice_file: Path | None, stop: threading.Event | None = None) -> bytes:
+            seen["stop"] = stop
+            return pocket_app.wav_from_float([0.1], 8000)
+
+    response = TestClient(pocket_app.create_app(Fake())).post("/tts", data={"text": "Hi"})
+    assert response.status_code == 200
+    assert isinstance(seen["stop"], threading.Event)
+
+
+def test_tts_returns_499_when_generation_stops():
+    class Fake:
+        def speak(self, text: str, voice_name: str | None, voice_file: Path | None, stop: threading.Event | None = None):
+            return None
+
+    response = TestClient(pocket_app.create_app(Fake())).post("/tts", data={"text": "Hi"})
+    assert response.status_code == 499
+
+
+def test_disconnect_stops_the_utterance():
+    started = threading.Event()
+    finished = threading.Event()
+
+    class Fake:
+        def speak(self, text: str, voice_name: str | None, voice_file: Path | None, stop: threading.Event | None = None):
+            started.set()
+            assert stop is not None and stop.wait(3)
+            finished.set()
+            return None
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=pocket_app.create_app(Fake()))
+        async with httpx.AsyncClient(transport=transport, base_url="http://pocket") as client:
+            task = asyncio.create_task(client.post("/tts", data={"text": "Hello there friend"}))
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        assert finished.wait(2)
+
+    asyncio.run(run())
+
+
+def test_speak_closes_pocket_when_the_browser_leaves(monkeypatch):
+    started = threading.Event()
+    closed = threading.Event()
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("follow_redirects") is False
+            assert kwargs.get("timeout") == 90
+
+        def post(self, url, data=None, files=None, **kwargs):
+            started.set()
+            if not closed.wait(2):
+                raise AssertionError("upstream was not closed")
+            raise httpx.ConnectError("closed")
+
+        def close(self):
+            closed.set()
+
+    monkeypatch.setattr("open_book.main.httpx.Client", Client)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://reader") as client:
+            task = asyncio.create_task(
+                client.post(
+                    "/v1/speak",
+                    json={
+                        "vendor": "pocket",
+                        "baseUrl": "http://127.0.0.1:7508",
+                        "voice": "alba",
+                        "text": "Hello.",
+                    },
+                )
+            )
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        assert closed.wait(2)
+
+    asyncio.run(run())
