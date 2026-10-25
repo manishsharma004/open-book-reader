@@ -48,11 +48,13 @@ class PocketSynthesizer:
         from pocket_tts.models.tts_model import TTSModel
 
         self.language = language
+        self.device = torch_device()
         self.model = TTSModel.load_model(language=language, quantize=quantize)
-        self.model.to("cpu")
+        self.model.to(self.device)
         default_voice = get_default_voice_for_language(language, None)
         self.default_state = self.model.get_state_for_audio_prompt(default_voice)
         self._lock = threading.Lock()
+        logger.info("pocket device=%s", self.device)
 
     def speak(self, text: str, voice_name: str | None, voice_file: Path | None) -> bytes:
         with self._lock:
@@ -67,6 +69,26 @@ class PocketSynthesizer:
         if channel.ndim == 2:
             channel = channel[0]
         return wav_from_float([float(sample) for sample in channel.tolist()], int(self.model.sample_rate))
+
+
+def torch_device() -> str:
+    """Use the RX 5500M when ROCm can see it and about a gigabyte is free."""
+    import torch
+
+    choice = os.environ.get("POCKET_DEVICE", "").strip().lower()
+    if choice:
+        return choice
+    if not (getattr(torch.version, "hip", None) and torch.cuda.is_available()):
+        return "cpu"
+    free, total = torch.cuda.mem_get_info()
+    if free < 1024 * 1024 * 1024:
+        logger.warning(
+            "pocket staying on cpu because the gpu has %s MB free of %s MB",
+            free // (1024 * 1024),
+            total // (1024 * 1024),
+        )
+        return "cpu"
+    return "cuda"
 
 
 def wav_from_float(samples: list[float], sample_rate: int) -> bytes:
