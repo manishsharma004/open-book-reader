@@ -9,14 +9,17 @@
 	import {
 		attachDocument,
 		bufferSnapshot,
+		bufferSpeech,
 		ensurePage,
 		onBuffer,
 		warm,
-		type PreparedPage
+		type PreparedPage,
+		type SpeechClip
 	} from '#lib/prepare.js';
 	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
+	import { clipIndexForWord, wordBackdrop } from '#lib/speech-clips.js';
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
@@ -49,6 +52,10 @@
 	let dragAnimate = $state(false);
 	let pageOpacity = $state(1);
 	let audio = $state<HTMLAudioElement | null>(null);
+	let preload = $state<HTMLAudioElement | null>(null);
+	let waitingClip = $state(-1);
+	let playingClip = -1;
+	let heldClip = -1;
 	let pdf: PDFDocumentProxy | null = null;
 	let viewGen = 0;
 	let paintGen = 0;
@@ -75,6 +82,36 @@
 	$effect(() => {
 		const display = String(shownPage + 1);
 		if (!editingPage) pageDraft = display;
+	});
+
+	const speechLoading = $derived.by(() => {
+		bufferTick;
+		if (!prepared || !settings || settings.tts.vendor === 'browser') return false;
+		return prepared.clips.some((clip) => !clip.audioUrl && clip.state !== 'error');
+	});
+
+	const speechReadyLabel = $derived.by(() => {
+		bufferTick;
+		if (!prepared?.clips.length) return '';
+		const ready = prepared.clips.filter((clip) => clip.audioUrl).length;
+		return `${ready} of ${prepared.clips.length} lines ready`;
+	});
+
+	const readyWords = $derived.by(() => {
+		bufferTick;
+		const flags: boolean[] = [];
+		for (const clip of prepared?.clips ?? []) {
+			if (!clip.audioUrl) continue;
+			for (let index = clip.wordStart; index < clip.wordEnd; index += 1) flags[index] = true;
+		}
+		return flags;
+	});
+
+	const playBlocked = $derived.by(() => {
+		bufferTick;
+		if (!prepared || !settings || settings.tts.vendor === 'browser' || prepared.clips.length === 0) return false;
+		const clip = prepared.clips[clipIndexForWord(prepared.clips, Math.max(0, resumeWord))];
+		return !clip?.audioUrl;
 	});
 
 	const bufferLabel = $derived.by(() => {
@@ -134,6 +171,9 @@
 		cancelSpeech();
 		if (audio) audio.pause();
 		heldAudioTime = null;
+		heldClip = -1;
+		playingClip = -1;
+		waitingClip = -1;
 		resumeWord = 0;
 		activeWord = -1;
 		playing = false;
@@ -151,6 +191,23 @@
 		return onBuffer(() => {
 			bufferTick += 1;
 		});
+	});
+
+	$effect(() => {
+		bufferTick;
+		const index = waitingClip;
+		const page = prepared;
+		const clip = index >= 0 ? page?.clips[index] : undefined;
+		if (!clip || !playing) return;
+		if (clip.state === 'error') {
+			waitingClip = -1;
+			playing = false;
+			voiceNote = clip.error || 'Speech failed for that line.';
+			return;
+		}
+		if (!clip.audioUrl) return;
+		const token = playToken;
+		playClip(index, clip.wordStart, token, null);
 	});
 
 	$effect(() => {
@@ -527,43 +584,46 @@
 		speakNext();
 	}
 
-	function placeAudio(fromWord: number, continueTime: number | null) {
-		if (!audio || !prepared) return;
+	function placeInClip(clip: SpeechClip, fromWord: number, continueTime: number | null) {
+		if (!audio) return;
 		if (continueTime != null) {
 			audio.currentTime = continueTime;
 			return;
 		}
-		if (fromWord <= 0) {
+		const local = fromWord - clip.wordStart;
+		if (local <= 0) {
 			audio.currentTime = 0;
 			return;
 		}
-		const timing = prepared.timings?.find((item) => item.wordIndex >= fromWord);
+		const timing = clip.timings?.find((item) => item.wordIndex >= fromWord);
 		if (timing) {
 			audio.currentTime = timing.start;
 			return;
 		}
 		if (Number.isFinite(audio.duration) && audio.duration > 0) {
-			audio.currentTime = timeForWord(words.map((word) => word.text), fromWord, audio.duration, audio.playbackRate || rate);
+			const texts = words.slice(clip.wordStart, clip.wordEnd).map((word) => word.text);
+			audio.currentTime = timeForWord(texts, local, audio.duration, audio.playbackRate || rate);
 		}
 	}
 
-	function followAudio(token: number) {
+	function followClip(token: number, clip: SpeechClip) {
 		const step = () => {
 			if (token !== playToken || !audio || !prepared) return;
-			if (prepared.timings?.length) {
-				const hit = indexForTimings(prepared.timings, audio.currentTime);
+			if (clip.timings?.length) {
+				const hit = indexForTimings(clip.timings, audio.currentTime);
 				if (hit >= 0) {
 					activeWord = hit;
 					resumeWord = hit;
 				}
-			} else if (Number.isFinite(audio.duration) && audio.duration > 0 && words.length > 0) {
-				const durations = wordDurations(words.map((word) => word.text), audio.playbackRate || rate);
+			} else if (Number.isFinite(audio.duration) && audio.duration > 0) {
+				const texts = words.slice(clip.wordStart, clip.wordEnd).map((word) => word.text);
+				const durations = wordDurations(texts, audio.playbackRate || rate);
 				const total = durations.reduce((sum, item) => sum + item, 0) || 1;
 				const elapsed = (audio.currentTime / audio.duration) * total;
 				const local = indexAt(durations, elapsed);
 				if (local >= 0) {
-					activeWord = local;
-					resumeWord = local;
+					activeWord = clip.wordStart + local;
+					resumeWord = activeWord;
 				}
 			}
 			if (!audio.paused && !audio.ended) clockFrame = requestAnimationFrame(step);
@@ -572,50 +632,85 @@
 		clockFrame = requestAnimationFrame(step);
 	}
 
+	function playClip(index: number, fromWord: number, token: number, continueTime: number | null) {
+		if (!prepared || !audio || !settings) return;
+		const clip = prepared.clips[index];
+		if (!clip) {
+			finishPlayback();
+			return;
+		}
+		if (clip.state === 'error' || (!clip.audioUrl && clip.state !== 'pending' && clip.state !== 'working')) {
+			waitingClip = -1;
+			playing = false;
+			voiceNote = clip.error || prepared.note || 'Speech failed for that line.';
+			return;
+		}
+		if (!clip.audioUrl) {
+			waitingClip = index;
+			playingClip = index;
+			activeWord = Math.max(fromWord, clip.wordStart);
+			resumeWord = activeWord;
+			playing = true;
+			bufferSpeech(prepared, settings, clip.wordStart, true);
+			return;
+		}
+		waitingClip = -1;
+		playingClip = index;
+		bufferSpeech(prepared, settings, clip.wordStart, true);
+		const next = prepared.clips[index + 1];
+		if (preload && next?.audioUrl) preload.src = next.audioUrl;
+		audio.playbackRate = rate;
+		if (audio.currentSrc !== clip.audioUrl) audio.src = clip.audioUrl;
+		const apply = () => {
+			if (token !== playToken) return;
+			placeInClip(clip, fromWord, continueTime);
+		};
+		if (audio.readyState >= 1) apply();
+		else audio.onloadedmetadata = apply;
+		audio.onended = () => {
+			if (token !== playToken) return;
+			stopClock();
+			const following = index + 1;
+			if (!prepared || following >= prepared.clips.length) {
+				finishPlayback();
+				return;
+			}
+			playClip(following, prepared.clips[following].wordStart, token, null);
+		};
+		playing = true;
+		logPipeline({
+			page: pageIndex + 1,
+			stage: 'play',
+			status: 'ok',
+			ms: null,
+			detail: `Playing line ${index + 1} of ${prepared.clips.length} at ${rate.toFixed(1)}×. From word ${fromWord + 1}.`
+		});
+		void audio.play().then(() => {
+			if (token !== playToken) return;
+			followClip(token, clip);
+		}).catch((caught) => {
+			if (token !== playToken) return;
+			playing = false;
+			error = caught instanceof Error ? caught.message : 'Could not play the audio.';
+		});
+	}
+
 	async function playFrom(fromWord: number, options?: { seek?: boolean }) {
 		if (!prepared || buffering || !settings) return;
 		const seek = options?.seek === true;
-		const continueTime = !seek && heldAudioTime != null ? heldAudioTime : null;
+		const clipIndex = clipIndexForWord(prepared.clips, fromWord);
+		const continueTime = !seek && heldClip === clipIndex && heldAudioTime != null ? heldAudioTime : null;
 		heldAudioTime = null;
+		heldClip = -1;
 		resumeWord = fromWord;
 		voiceNote = '';
 		const token = ++playToken;
 		stopClock();
 		cancelSpeech();
 		activeWord = fromWord;
-		if (prepared.audioUrl && audio) {
-			audio.playbackRate = rate;
-			if (audio.currentSrc !== prepared.audioUrl) audio.src = prepared.audioUrl;
-			const apply = () => {
-				if (token !== playToken) return;
-				placeAudio(fromWord, continueTime);
-			};
-			if (audio.readyState >= 1) apply();
-			else audio.onloadedmetadata = apply;
-			audio.onended = () => {
-				if (token !== playToken) return;
-				finishPlayback();
-			};
-			playing = true;
-			logPipeline({
-				page: pageIndex + 1,
-				stage: 'play',
-				status: 'ok',
-				ms: null,
-				detail: prepared.timings
-					? `Playing stored audio at ${rate.toFixed(1)}× with word times. From word ${fromWord + 1}.`
-					: `Playing stored audio at ${rate.toFixed(1)}×. Highlight follows the clip. From word ${fromWord + 1}.`
-			});
-			try {
-				await audio.play();
-			} catch (caught) {
-				if (token !== playToken) return;
-				playing = false;
-				error = caught instanceof Error ? caught.message : 'Could not play the audio.';
-				return;
-			}
-			if (token !== playToken) return;
-			followAudio(token);
+		const clip = clipIndex >= 0 ? prepared.clips[clipIndex] : undefined;
+		if (settings.tts.vendor !== 'browser' && clip && (clip.audioUrl || clip.state !== 'error')) {
+			playClip(clipIndex, fromWord, token, continueTime);
 			return;
 		}
 		if (audio) audio.pause();
@@ -623,8 +718,9 @@
 	}
 
 	function pausePlayback() {
-		if (prepared?.audioUrl && audio && !audio.paused) {
+		if (playingClip >= 0 && audio && !audio.paused) {
 			heldAudioTime = audio.currentTime;
+			heldClip = playingClip;
 			if (activeWord >= 0) resumeWord = activeWord;
 			audio.pause();
 		} else if (clockRunning) {
@@ -633,6 +729,7 @@
 			resumeWord = activeWord;
 		}
 		playToken += 1;
+		waitingClip = -1;
 		stopClock();
 		cancelSpeech();
 		playing = false;
@@ -734,15 +831,16 @@
 										<button
 											type="button"
 											class="pointer-events-auto absolute rounded-sm"
-											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{index ===
-												activeWord || activeWord === -2
-												? 'var(--highlight)'
-												: 'transparent'};box-shadow:{index === activeWord || activeWord === -2
+											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{wordBackdrop(
+												index === activeWord || activeWord === -2,
+												readyWords[index] === true
+											)};box-shadow:{index === activeWord || activeWord === -2
 												? 'inset 0 -2px 0 var(--highlight-line)'
 												: 'none'}"
 											aria-label={word.text}
 											aria-current={index === activeWord ? 'true' : undefined}
 											data-word={index}
+											data-speech-ready={readyWords[index] ? 'true' : 'false'}
 											onclick={() => playFrom(index, { seek: true })}
 										></button>
 									{/each}
@@ -759,6 +857,16 @@
 								<p class="text-muted-foreground text-center text-xs">{pipeline.live || bufferLabel}</p>
 							</div>
 						</div>
+					{:else if speechLoading}
+						<div class="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center" data-speech-loader>
+							<div class="bg-card/95 border-border flex items-center gap-3 rounded-xl border px-4 py-3 shadow-sm">
+								<div class="border-muted border-t-primary size-5 animate-spin rounded-full border-2"></div>
+								<div>
+									<p class="text-sm font-medium">Buffering the next lines</p>
+									<p class="text-muted-foreground text-xs">{speechReadyLabel}</p>
+								</div>
+							</div>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -771,7 +879,7 @@
 	<footer class="border-border bg-card shrink-0 border-t px-4 py-3">
 		<div class="flex flex-wrap items-center gap-3">
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex - 1)} disabled={pageIndex === 0}>Previous</Button>
-			<Button onclick={toggle} disabled={buffering || words.length === 0}>{playing ? 'Pause' : 'Play'}</Button>
+			<Button onclick={toggle} disabled={buffering || words.length === 0 || (!playing && playBlocked)}>{playing ? 'Pause' : 'Play'}</Button>
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex + 1)} disabled={!book || pageIndex >= book.pageCount - 1}>
 				Next
 			</Button>
@@ -837,6 +945,9 @@
 			{/if}
 			<p class="text-muted-foreground text-xs">
 				{bufferLabel}
+				{#if speechReadyLabel}
+					· {speechReadyLabel}
+				{/if}
 				{#if prepared}
 					· {prepared.source === 'ocr' ? `OCR ${prepared.confidence ?? 0}` : 'Text layer'}
 				{/if}
@@ -852,4 +963,5 @@
 		</div>
 	</footer>
 	<audio bind:this={audio} class="hidden"></audio>
+	<audio bind:this={preload} class="hidden" preload="auto"></audio>
 </div>
