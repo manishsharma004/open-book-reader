@@ -169,7 +169,7 @@
 			<Card.Header>
 				<Card.Title>VLLM</Card.Title>
 				<Card.Description>
-					Ollama on this machine, port 11434. Completion calls to any other address are refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
+					Ollama on this machine at port 11434, or an LLM at port 5173 on 127.0.0.1, localhost, or 192.168.29.45. Any other completion address is refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -229,7 +229,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. The server calls Kokoro on this machine at port 8880, api.openai.com, or api.elevenlabs.io. Another speech host has to be listed in SPEECH_ALLOW. ElevenLabs can build a voice from a sample.
+					Browser voice changes pitch and rate for emotion. The server calls Kokoro on port 8880 at 127.0.0.1, localhost, or 192.168.29.45, plus api.openai.com and api.elevenlabs.io. Another speech host has to be listed in SPEECH_ALLOW. ElevenLabs can build a voice from a sample.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
