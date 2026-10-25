@@ -148,7 +148,7 @@ Shown when the book is Ready.
 
 | Section | Contents |
 | --- | --- |
-| Connections | Separate forms for VLLM, emotion analysis, and TTS. Each has a base URL, model, and API key. VLLM and emotion analysis tell the reader that completion is forwarded only to local Ollama on port 11434, an LLM on port 5173 at 127.0.0.1, localhost, or 127.0.0.1, or `OLLAMA_ALLOW`. TTS tells the reader that speech is forwarded only to Kokoro on port 8880 at 127.0.0.1, localhost, or 127.0.0.1, OpenAI, ElevenLabs, or `SPEECH_ALLOW`. TTS also has vendor, voice id, a voice sample, and **Create ElevenLabs voice**. **Test** calls the proxy |
+| Connections | Separate forms for VLLM, emotion analysis, and TTS. Each has a base URL, model, and API key. VLLM and emotion analysis tell the reader that completion is forwarded only to local Ollama on port 11434, an LLM on port 5173 at 127.0.0.1, localhost, or 127.0.0.1, or `OLLAMA_ALLOW`. TTS tells the reader that speech is forwarded only to Kokoro on port 8880 at 127.0.0.1, localhost, or 127.0.0.1, OpenAI, ElevenLabs, or `SPEECH_ALLOW`. Kokoro does not clone. The voice sample is the reference for Pocket TTS `english_18m_refl_2026-10` on the CPU. **Test** calls the proxy |
 | Reading | Palette (Ink or Lamp), pages prepared ahead (2 or 3), OCR language, browser voice or vendor voice, emotion (auto or a named emotion), Day / Night / System |
 | Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, prepared-audio cap (default 200 MB per book), **Export library**, **Remove all prepared audio** |
 | Privacy | What each model call sends (table from `DESIGN.md`). **Send unreadable pages to the text model** is off and is enabled per book; the control says the page image is sent |
