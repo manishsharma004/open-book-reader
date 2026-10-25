@@ -16,6 +16,7 @@
 	} from '#lib/prepare.js';
 	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
+	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
 	import { browserDelivery, listVoices, voiceByName } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
@@ -44,6 +45,14 @@
 	let viewGen = 0;
 	let paintGen = 0;
 	let playToken = 0;
+	let resumeWord = 0;
+	let heldAudioTime: number | null = null;
+	let clockFrame = 0;
+	let clockRunning = false;
+	let clockOrigin = 0;
+	let clockBase = 0;
+	let clockDurations: number[] = [];
+	let clockStart = 0;
 
 	const id = $derived(page.params.id ?? '');
 	const settings = $derived(settingsState.current);
@@ -60,12 +69,55 @@
 		return `Buffer ${ready}/${pages.length}${workingLabel}`;
 	});
 
+	function stopClock() {
+		clockRunning = false;
+		cancelAnimationFrame(clockFrame);
+	}
+
+	function clockWord(now = performance.now()) {
+		const elapsed = clockBase + (clockRunning ? now - clockOrigin : 0);
+		const local = indexAt(clockDurations, elapsed);
+		return clockStart + (local < 0 ? 0 : local);
+	}
+
+	function tickClock() {
+		if (!clockRunning) return;
+		const word = clockWord();
+		activeWord = word;
+		resumeWord = word;
+		clockFrame = requestAnimationFrame(tickClock);
+	}
+
+	function startClock(durations: number[], wordStart: number) {
+		stopClock();
+		clockDurations = durations;
+		clockStart = wordStart;
+		clockBase = 0;
+		clockOrigin = performance.now();
+		clockRunning = true;
+		activeWord = wordStart;
+		resumeWord = wordStart;
+		tickClock();
+	}
+
+	function pauseClock() {
+		if (!clockRunning) return;
+		clockBase += performance.now() - clockOrigin;
+		clockRunning = false;
+		cancelAnimationFrame(clockFrame);
+		const word = clockWord();
+		activeWord = word;
+		resumeWord = word;
+	}
+
 	function halt() {
 		playToken += 1;
+		stopClock();
 		speechSynthesis.cancel();
-		if (audio) {
-			audio.pause();
-		}
+		if (audio) audio.pause();
+		heldAudioTime = null;
+		resumeWord = 0;
+		activeWord = -1;
 		playing = false;
 	}
 
@@ -211,22 +263,28 @@
 		let cursor = 0;
 		for (let index = 0; index < list.length; index += 1) {
 			const end = cursor + list[index].text.length;
-			if (charIndex >= cursor && charIndex < end) return index;
+			if (charIndex >= cursor && charIndex <= end) return index;
 			cursor = end + 1;
 		}
-		return -1;
+		return list.length > 0 ? list.length - 1 : -1;
 	}
 
-	function playBrowser(fromWord: number) {
+	function finishPlayback() {
+		stopClock();
+		playing = false;
+		activeWord = -1;
+		resumeWord = 0;
+		heldAudioTime = null;
+	}
+
+	function playBrowser(fromWord: number, token: number) {
 		if (!prepared || !settings) return;
-		const token = ++playToken;
 		const clauses = prepared.clauses.filter((clause) => clause.wordEnd > fromWord);
 		let cursor = 0;
 		const speakNext = () => {
 			if (token !== playToken) return;
 			if (cursor >= clauses.length) {
-				playing = false;
-				activeWord = -1;
+				finishPlayback();
 				return;
 			}
 			const clause = clauses[cursor];
@@ -245,46 +303,125 @@
 			utterance.volume = delivery.volume;
 			const voice = voiceByName(settings.voiceName);
 			if (voice) utterance.voice = voice;
-			logPipeline({
-				page: pageIndex + 1,
-				stage: 'play',
-				status: 'ok',
-				ms: null,
-				detail: `${delivery.detail} Voice ${voice?.name ?? 'browser default'}.`
-			});
-			utterance.onboundary = (event) => {
-				if (token !== playToken || event.name !== 'word') return;
-				const local = wordAtChar(slice, event.charIndex);
-				activeWord = local === -1 ? -1 : start + local;
+			const durations = wordDurations(slice.map((word) => word.text), delivery.rate);
+			let started = false;
+			const begin = () => {
+				if (started || token !== playToken) return;
+				started = true;
+				startClock(durations, start);
 			};
-			utterance.onend = () => speakNext();
+			utterance.onstart = begin;
+			utterance.onboundary = (event) => {
+				if (token !== playToken || (event.name && event.name !== 'word')) return;
+				const local = wordAtChar(slice, event.charIndex);
+				if (local < 0) return;
+				begin();
+				clockBase = elapsedBefore(durations, local);
+				clockOrigin = performance.now();
+				activeWord = start + local;
+				resumeWord = activeWord;
+			};
+			utterance.onend = () => {
+				if (token !== playToken) return;
+				stopClock();
+				speakNext();
+			};
+			utterance.onerror = (event) => {
+				if (token !== playToken) return;
+				if (event.error === 'interrupted' || event.error === 'canceled') return;
+				stopClock();
+				playing = false;
+				error = `Voice stopped: ${event.error}`;
+			};
+			activeWord = start;
+			resumeWord = start;
 			playing = true;
-			speechSynthesis.speak(utterance);
+			if (cursor === 1) {
+				logPipeline({
+					page: pageIndex + 1,
+					stage: 'play',
+					status: 'ok',
+					ms: null,
+					detail: `${delivery.detail} Voice ${voice?.name ?? 'browser default'}. From word ${start + 1}.`
+				});
+			}
+			window.setTimeout(() => {
+				if (token !== playToken) return;
+				speechSynthesis.speak(utterance);
+				window.setTimeout(begin, 250);
+			}, 40);
 		};
-		speechSynthesis.cancel();
 		speakNext();
 	}
 
-	async function playFrom(fromWord: number) {
-		if (!prepared || buffering) return;
-		halt();
+	function placeAudio(fromWord: number, continueTime: number | null) {
+		if (!audio || !prepared) return;
+		if (continueTime != null) {
+			audio.currentTime = continueTime;
+			return;
+		}
+		if (fromWord <= 0) {
+			audio.currentTime = 0;
+			return;
+		}
+		const timing = prepared.timings?.find((item) => item.wordIndex >= fromWord);
+		if (timing) {
+			audio.currentTime = timing.start;
+			return;
+		}
+		if (Number.isFinite(audio.duration) && audio.duration > 0) {
+			audio.currentTime = timeForWord(words.map((word) => word.text), fromWord, audio.duration, audio.playbackRate || rate);
+		}
+	}
+
+	function followAudio(token: number) {
+		const step = () => {
+			if (token !== playToken || !audio || !prepared) return;
+			if (prepared.timings?.length) {
+				const hit = indexForTimings(prepared.timings, audio.currentTime);
+				if (hit >= 0) {
+					activeWord = hit;
+					resumeWord = hit;
+				}
+			} else if (Number.isFinite(audio.duration) && audio.duration > 0 && words.length > 0) {
+				const durations = wordDurations(words.map((word) => word.text), audio.playbackRate || rate);
+				const total = durations.reduce((sum, item) => sum + item, 0) || 1;
+				const elapsed = (audio.currentTime / audio.duration) * total;
+				const local = indexAt(durations, elapsed);
+				if (local >= 0) {
+					activeWord = local;
+					resumeWord = local;
+				}
+			}
+			if (!audio.paused && !audio.ended) clockFrame = requestAnimationFrame(step);
+		};
+		clockRunning = true;
+		clockFrame = requestAnimationFrame(step);
+	}
+
+	async function playFrom(fromWord: number, options?: { seek?: boolean }) {
+		if (!prepared || buffering || !settings) return;
+		const seek = options?.seek === true;
+		const continueTime = !seek && heldAudioTime != null ? heldAudioTime : null;
+		heldAudioTime = null;
+		resumeWord = fromWord;
+		const token = ++playToken;
+		stopClock();
+		speechSynthesis.cancel();
+		activeWord = fromWord;
 		if (prepared.audioUrl && audio) {
-			const token = ++playToken;
-			audio.src = prepared.audioUrl;
 			audio.playbackRate = rate;
-			const timing = prepared.timings?.find((item) => item.wordIndex >= fromWord);
-			audio.currentTime = timing?.start ?? 0;
+			if (audio.currentSrc !== prepared.audioUrl) audio.src = prepared.audioUrl;
+			const apply = () => {
+				if (token !== playToken) return;
+				placeAudio(fromWord, continueTime);
+			};
+			if (audio.readyState >= 1) apply();
+			else audio.onloadedmetadata = apply;
 			audio.onended = () => {
 				if (token !== playToken) return;
-				playing = false;
-				activeWord = -1;
+				finishPlayback();
 			};
-			audio.ontimeupdate = () => {
-				if (token !== playToken || !prepared?.timings) return;
-				const hit = prepared.timings.find((timing) => audio && audio.currentTime >= timing.start && audio.currentTime < timing.end);
-				if (hit) activeWord = hit.wordIndex;
-			};
-			if (!prepared.timings) activeWord = -2;
 			playing = true;
 			logPipeline({
 				page: pageIndex + 1,
@@ -292,22 +429,47 @@
 				status: 'ok',
 				ms: null,
 				detail: prepared.timings
-					? `Playing stored audio at ${rate.toFixed(1)}× with word times.`
-					: `Playing stored audio at ${rate.toFixed(1)}×. No word times, so the page stays highlighted.`
+					? `Playing stored audio at ${rate.toFixed(1)}× with word times. From word ${fromWord + 1}.`
+					: `Playing stored audio at ${rate.toFixed(1)}×. Highlight follows the clip. From word ${fromWord + 1}.`
 			});
-			await audio.play();
+			try {
+				await audio.play();
+			} catch (caught) {
+				if (token !== playToken) return;
+				playing = false;
+				error = caught instanceof Error ? caught.message : 'Could not play the audio.';
+				return;
+			}
+			if (token !== playToken) return;
+			followAudio(token);
 			return;
 		}
-		playBrowser(fromWord);
+		if (audio) audio.pause();
+		playBrowser(fromWord, token);
+	}
+
+	function pausePlayback() {
+		if (prepared?.audioUrl && audio && !audio.paused) {
+			heldAudioTime = audio.currentTime;
+			if (activeWord >= 0) resumeWord = activeWord;
+			audio.pause();
+		} else if (clockRunning) {
+			pauseClock();
+		} else if (activeWord >= 0) {
+			resumeWord = activeWord;
+		}
+		playToken += 1;
+		stopClock();
+		speechSynthesis.cancel();
+		playing = false;
 	}
 
 	function toggle() {
 		if (playing) {
-			halt();
-			activeWord = -1;
+			pausePlayback();
 			return;
 		}
-		void playFrom(0);
+		void playFrom(resumeWord);
 	}
 
 	async function onEmotion(event: Event) {
@@ -381,7 +543,9 @@
 												? 'inset 0 -2px 0 var(--highlight-line)'
 												: 'none'}"
 											aria-label={word.text}
-											onclick={() => playFrom(index)}
+											aria-current={index === activeWord ? 'true' : undefined}
+											data-word={index}
+											onclick={() => playFrom(index, { seek: true })}
 										></button>
 									{/each}
 								</div>
