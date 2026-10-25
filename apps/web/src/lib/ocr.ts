@@ -1,4 +1,5 @@
 import { pageWords, type PageText, type PageWord } from '#lib/pdf.js';
+import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 import { setPipelineLive } from '#lib/pipeline.svelte.js';
 import { createWorker, type Worker } from 'tesseract.js';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -71,26 +72,35 @@ export async function readPage(
 	const recognized = blocks.flatMap((block) =>
 		block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words))
 	);
+	const recognizedWords = recognized.flatMap((word) => {
+		const token = word.text.trim();
+		if (!token) return [];
+		const piece: SpokenPiece & { box: PageWord; confidence: number } = {
+			segment: token,
+			isWordLike: /[\p{L}\p{N}]/u.test(token),
+			box: {
+				text: token,
+				x: word.bbox.x0 / scale,
+				y: base.height - word.bbox.y1 / scale,
+				w: (word.bbox.x1 - word.bbox.x0) / scale,
+				h: (word.bbox.y1 - word.bbox.y0) / scale,
+				charStart: 0,
+				charEnd: 0
+			},
+			confidence: word.confidence
+		};
+		return [piece];
+	});
 	const words: PageWord[] = [];
 	let text = '';
 	let confidenceTotal = 0;
-	for (const word of recognized) {
-		const token = word.text.trim();
-		if (!token) continue;
+	for (const span of spokenWordSpans(recognizedWords)) {
 		if (text) text += ' ';
 		const charStart = text.length;
-		text += token;
-		const height = (word.bbox.y1 - word.bbox.y0) / scale;
-		words.push({
-			text: token,
-			x: word.bbox.x0 / scale,
-			y: base.height - word.bbox.y1 / scale,
-			w: (word.bbox.x1 - word.bbox.x0) / scale,
-			h: height,
-			charStart,
-			charEnd: text.length
-		});
-		confidenceTotal += word.confidence;
+		text += span.text;
+		const source = recognizedWords[span.pieceIndex];
+		words.push({ ...source.box, text: span.text, charStart, charEnd: text.length });
+		confidenceTotal += source.confidence;
 	}
 	const confidence = words.length ? Math.round(confidenceTotal / words.length) : 0;
 	return { words, text, source: 'ocr', confidence };
