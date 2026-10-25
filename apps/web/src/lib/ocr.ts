@@ -1,3 +1,4 @@
+import { assignWordRoles } from '#lib/page-roles.js';
 import { pageWords, type PageText, type PageWord } from '#lib/pdf.js';
 import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 import { setPipelineLive } from '#lib/pipeline.svelte.js';
@@ -85,7 +86,8 @@ export async function readPage(
 				w: (word.bbox.x1 - word.bbox.x0) / scale,
 				h: (word.bbox.y1 - word.bbox.y0) / scale,
 				charStart: 0,
-				charEnd: 0
+				charEnd: 0,
+				role: 'body'
 			},
 			confidence: word.confidence
 		};
@@ -102,6 +104,8 @@ export async function readPage(
 		words.push({ ...source.box, text: span.text, charStart, charEnd: text.length });
 		confidenceTotal += source.confidence;
 	}
+	const roles = assignWordRoles(words, base.height);
+	for (let index = 0; index < words.length; index += 1) words[index].role = roles[index];
 	const confidence = words.length ? Math.round(confidenceTotal / words.length) : 0;
 	return { words, text, source: 'ocr', confidence };
 }

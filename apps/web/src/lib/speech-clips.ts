@@ -5,13 +5,18 @@
  * than that pace stays one clip until it reaches twice the pace, so an
  * unusually long sentence is not cut at 24 words. A run with no full stop is
  * still cut at the pace: Pocket will not finish a page that has no end mark.
+ * A chapter title is its own clip. A running header is left out.
  * The reader still fills the whole page buffer, one clip at a time.
  */
+
+import type { WordRole } from '#lib/page-roles.js';
 
 export const SPEECH_CHUNK_WORDS = 24;
 export const SPEECH_PACE_MIN = 8;
 export const SPEECH_PACE_MAX = 48;
+
 export const READY_TINT = 'rgba(74, 222, 128, 0.32)';
+export const HEADING_TINT = 'rgba(251, 191, 36, 0.34)';
 
 const SENTENCE = /[.!?…]["')\]]*$/u;
 
@@ -28,7 +33,7 @@ function sentenceLimit(pace: number) {
 	return Math.min(64, pace * 2);
 }
 
-export function splitSpeechWords(words: string[], pace = SPEECH_CHUNK_WORDS): SpeechSpan[] {
+function splitRun(words: string[], pace: number): SpeechSpan[] {
 	if (words.length === 0) return [];
 	const budget = speechPace(pace);
 	const cap = sentenceLimit(budget);
@@ -78,16 +83,45 @@ export function splitSpeechWords(words: string[], pace = SPEECH_CHUNK_WORDS): Sp
 	return spans;
 }
 
+export function splitSpeechWords(words: string[], pace = SPEECH_CHUNK_WORDS, roles?: WordRole[]): SpeechSpan[] {
+	const budget = speechPace(pace);
+	if (!roles) return splitRun(words, budget);
+	const spans: SpeechSpan[] = [];
+	let index = 0;
+	while (index < words.length) {
+		const role = roles[index] ?? 'body';
+		if (role === 'header') {
+			index += 1;
+			continue;
+		}
+		let end = index + 1;
+		while (end < words.length && (roles[end] ?? 'body') === role) end += 1;
+		if (role === 'heading') spans.push({ wordStart: index, wordEnd: end });
+		else {
+			const slice = words.slice(index, end);
+			for (const piece of splitRun(slice, budget)) {
+				spans.push({ wordStart: index + piece.wordStart, wordEnd: index + piece.wordEnd });
+			}
+		}
+		index = end;
+	}
+	return spans;
+}
+
 export function clipIndexForWord(clips: SpeechSpan[], word: number): number {
 	if (clips.length === 0 || word < 0) return -1;
 	const found = clips.findIndex((clip) => word >= clip.wordStart && word < clip.wordEnd);
 	if (found >= 0) return found;
 	if (word < clips[0].wordStart) return 0;
+	const next = clips.findIndex((clip) => clip.wordStart > word);
+	if (next >= 0) return next;
 	return -1;
 }
 
-export function wordBackdrop(active: boolean, ready: boolean): string {
+export function wordBackdrop(active: boolean, ready: boolean, role: WordRole = 'body'): string {
 	if (active) return 'var(--highlight)';
+	if (role === 'header') return 'transparent';
+	if (role === 'heading' && !ready) return HEADING_TINT;
 	if (ready) return READY_TINT;
 	return 'transparent';
 }

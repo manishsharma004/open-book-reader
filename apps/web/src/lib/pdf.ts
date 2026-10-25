@@ -1,3 +1,4 @@
+import { assignWordRoles } from '#lib/page-roles.js';
 import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -12,6 +13,7 @@ export type PageWord = {
 	h: number;
 	charStart: number;
 	charEnd: number;
+	role: 'heading' | 'body' | 'header';
 };
 
 export type PageText = {
@@ -26,6 +28,7 @@ export async function openPdf(data: ArrayBuffer, password?: string): Promise<PDF
 }
 
 export async function pageWords(page: PDFPageProxy): Promise<PageText> {
+	const viewport = page.getViewport({ scale: 1 });
 	const content = await page.getTextContent();
 	const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
 	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h'>> = [];
@@ -63,9 +66,12 @@ export async function pageWords(page: PDFPageProxy): Promise<PageText> {
 			w: piece.w,
 			h: piece.h,
 			charStart,
-			charEnd: text.length
+			charEnd: text.length,
+			role: 'body'
 		});
 	}
+	const roles = assignWordRoles(words, viewport.height);
+	for (let index = 0; index < words.length; index += 1) words[index].role = roles[index];
 
 	return { words, text };
 }

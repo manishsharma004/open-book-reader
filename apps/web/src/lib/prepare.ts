@@ -8,6 +8,7 @@ import {
 	type AppSettings,
 	type EmotionName
 } from '#lib/settings.js';
+import { spokenClipText } from '#lib/page-roles.js';
 import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
 import type { PageWord } from '#lib/pdf.js';
@@ -88,6 +89,10 @@ function emit() {
 export function onBuffer(listener: () => void) {
 	listeners.add(listener);
 	return () => listeners.delete(listener);
+}
+
+export function cachedPage(index: number, settings: AppSettings): PreparedPage | null {
+	return cache.get(cacheKey(index, settings)) ?? null;
 }
 
 export function cacheKey(index: number, settings: AppSettings) {
@@ -334,13 +339,15 @@ function emotionAt(clauses: Clause[], wordIndex: number): EmotionName {
 }
 
 function makeClips(words: PageWord[], clauses: Clause[], pace: number): SpeechClip[] {
-	return splitSpeechWords(words.map((word) => word.text), pace).map((span) => ({
+	const roles = words.map((word) => word.role);
+	return splitSpeechWords(
+		words.map((word) => word.text),
+		pace,
+		roles
+	).map((span) => ({
 		wordStart: span.wordStart,
 		wordEnd: span.wordEnd,
-		text: words
-			.slice(span.wordStart, span.wordEnd)
-			.map((word) => word.text)
-			.join(' '),
+		text: spokenClipText(words.slice(span.wordStart, span.wordEnd)),
 		emotion: emotionAt(clauses, span.wordStart),
 		audioUrl: null,
 		timings: null,
@@ -545,7 +552,7 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean, si
 			stage: 'tts',
 			status: 'start',
 			ms: null,
-			detail: `${clips.length} clips at a pace of ${pace} words, split on full stops. The open page is spoken first, then the rest of the page buffer.`
+			detail: `${clips.length} clips at a pace of ${pace} words, split on full stops. ${extracted.words.filter((word) => word.role === 'heading').length} chapter-title words are spoken apart from the prose. The open page is spoken first, then the rest of the page buffer.`
 		});
 	}
 
