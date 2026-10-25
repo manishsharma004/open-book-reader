@@ -1,0 +1,94 @@
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+
+export type Book = {
+	id: string;
+	title: string;
+	sourceHash: string;
+	pageCount: number;
+	addedAt: number;
+	blobId: string;
+	coverId: string | null;
+};
+
+type BlobRecord = {
+	id: string;
+	kind: 'source' | 'cover';
+	blob: Blob;
+};
+
+type SettingsRecord = {
+	id: 'app';
+	theme: 'day' | 'night' | 'system';
+};
+
+interface Schema extends DBSchema {
+	books: {
+		key: string;
+		value: Book;
+		indexes: { 'by-hash': string };
+	};
+	blobs: {
+		key: string;
+		value: BlobRecord;
+	};
+	settings: {
+		key: string;
+		value: SettingsRecord;
+	};
+}
+
+let database: Promise<IDBPDatabase<Schema>> | null = null;
+
+function db() {
+	database ??= openDB<Schema>('open-book-reader', 1, {
+		upgrade(database) {
+			const books = database.createObjectStore('books', { keyPath: 'id' });
+			books.createIndex('by-hash', 'sourceHash', { unique: true });
+			database.createObjectStore('blobs', { keyPath: 'id' });
+			database.createObjectStore('settings', { keyPath: 'id' });
+		}
+	});
+	return database;
+}
+
+export async function listBooks(): Promise<Book[]> {
+	const books = await (await db()).getAll('books');
+	return books.sort((a, b) => b.addedAt - a.addedAt);
+}
+
+export async function getBook(id: string): Promise<Book | undefined> {
+	return (await db()).get('books', id);
+}
+
+export async function findBookByHash(hash: string): Promise<Book | undefined> {
+	return (await db()).getFromIndex('books', 'by-hash', hash);
+}
+
+export async function getBlob(id: string): Promise<Blob | undefined> {
+	return (await (await db()).get('blobs', id))?.blob;
+}
+
+export async function saveBook(book: Book, source: Blob, cover: Blob | null) {
+	const database = await db();
+	const tx = database.transaction(['books', 'blobs'], 'readwrite');
+	await tx.objectStore('blobs').put({ id: book.blobId, kind: 'source', blob: source });
+	if (cover && book.coverId) {
+		await tx.objectStore('blobs').put({ id: book.coverId, kind: 'cover', blob: cover });
+	}
+	await tx.objectStore('books').put(book);
+	await tx.done;
+}
+
+export async function deleteBook(book: Book) {
+	const database = await db();
+	const tx = database.transaction(['books', 'blobs'], 'readwrite');
+	await tx.objectStore('books').delete(book.id);
+	await tx.objectStore('blobs').delete(book.blobId);
+	if (book.coverId) await tx.objectStore('blobs').delete(book.coverId);
+	await tx.done;
+}
+
+export async function sha256(file: Blob): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
