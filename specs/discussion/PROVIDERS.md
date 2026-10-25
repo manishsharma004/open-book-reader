@@ -142,7 +142,7 @@ Why A is the default:
 Typical mode A layouts:
 
 - Everything on one laptop: the app server, Ollama, and Kokoro all on `127.0.0.1`. Open `http://localhost:8787`. `localhost` is a secure context, so the service worker, Web Locks, and `crypto.subtle` work over plain HTTP.
-- A home server: the app server runs on the same host as Ollama, and other devices open `https://reader.home.example` through a reverse proxy with a certificate. Plain `http://192.168.1.40:8787` is **not** a secure context: service workers are unavailable. Adding a PDF still works, because the hash and ids do not require `crypto.subtle`. HTTPS remains the way to give phones the service worker and Web Locks.
+- A home server: the app server runs on the same host as Ollama, and other devices open `https://reader.home.example` through a reverse proxy with a certificate. Plain `http://192.168.1.40:8787` is **not** a secure context: service workers and the browser voice are unavailable. Adding a PDF and opening it still work, because the hash, ids, and reader paint do not require `crypto.subtle` or `speechSynthesis`. Listening on that phone uses a speech model. HTTPS remains the way to give phones the service worker, Web Locks, and the browser voice.
 - A cloud VM: the app server next to hosted vendors only. It cannot reach the reader's LAN.
 
 ## 3. Proxy contract

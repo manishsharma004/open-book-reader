@@ -15,9 +15,71 @@ export function canonEmotion(value: string): EmotionName {
 	return (EMOTIONS as readonly string[]).includes(value) ? (value as EmotionName) : 'neutral';
 }
 
+export function speechEngine(): SpeechSynthesis | null {
+	try {
+		const engine = globalThis.speechSynthesis;
+		if (!engine || typeof engine.cancel !== 'function' || typeof engine.speak !== 'function') return null;
+		return engine;
+	} catch {
+		return null;
+	}
+}
+
 export function listVoices(): SpeechSynthesisVoice[] {
-	if (typeof speechSynthesis === 'undefined') return [];
-	return speechSynthesis.getVoices();
+	const engine = speechEngine();
+	if (!engine) return [];
+	try {
+		return engine.getVoices();
+	} catch {
+		return [];
+	}
+}
+
+export function cancelSpeech() {
+	const engine = speechEngine();
+	if (!engine) return;
+	try {
+		engine.cancel();
+	} catch {
+		// A stub engine on an insecure page can throw. Opening the book must not.
+	}
+}
+
+const NO_BROWSER_VOICE =
+	'This page has no browser voice. Open it on localhost or HTTPS, or choose a speech model in Settings.';
+
+export function createUtterance(text: string): SpeechSynthesisUtterance {
+	if (typeof SpeechSynthesisUtterance !== 'function') throw new Error(NO_BROWSER_VOICE);
+	try {
+		return new SpeechSynthesisUtterance(text);
+	} catch {
+		throw new Error(NO_BROWSER_VOICE);
+	}
+}
+
+export function speak(utterance: SpeechSynthesisUtterance) {
+	const engine = speechEngine();
+	if (!engine) throw new Error(NO_BROWSER_VOICE);
+	engine.speak(utterance);
+}
+
+export function watchVoices(sync: () => void): () => void {
+	sync();
+	const engine = speechEngine();
+	if (!engine || typeof engine.addEventListener !== 'function') return () => {};
+	const onChange = () => sync();
+	try {
+		engine.addEventListener('voiceschanged', onChange);
+	} catch {
+		return () => {};
+	}
+	return () => {
+		try {
+			engine.removeEventListener('voiceschanged', onChange);
+		} catch {
+			// The engine can disappear between listen and cleanup.
+		}
+	};
 }
 
 export function voiceByName(name: string): SpeechSynthesisVoice | null {
