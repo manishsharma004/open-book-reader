@@ -2,7 +2,7 @@
 
 Follow `AGENTS.md`. This file is the handoff for the machine and the reader as of 26 October 2026.
 
-`specs/discussion/DESIGN.md` §1.2 is what the app does. The rest of that directory is the target (spans, embeddings, chapter records, the Ready gate, export, the text view). Those pieces are not built. Do not start them unless the request asks for them.
+`specs/discussion/DESIGN.md` §1.2 is what the app does. The rest of that directory is the target (spans, embeddings, chapter records, the Ready gate, export, the text view). Those pieces are not built. Do not start them unless the request asks for them. `docs/LEARNINGS.md` is why the running reader is shaped this way, and which earlier fixes did not work.
 
 ## Where the running reader lives
 
