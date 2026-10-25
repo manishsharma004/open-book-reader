@@ -62,7 +62,7 @@ Summary of the most important changes:
 | F14 | Medium | OpenAI lists `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts` for shutdown on January 6, 2027 | Speech model is a setting and is part of the utterance key. The default engine is Kokoro, not OpenAI speech | `PROVIDERS.md` §6, `DESIGN.md` §12 |
 | F15 | Medium | Anthropic API version `2026-10-21` sends the key as `Authorization: Bearer` and rejects `temperature`, `top_p`, and `top_k` | Adapter sends Bearer by default and omits sampling parameters | `PROVIDERS.md` §1.2, §5 |
 | F16 | Medium | Structured output differs per vendor; some have none (DeepSeek `json_object`, Ollama cloud) | `structuredOutput` per assignment, chosen by the probe; the browser always validates | `PROVIDERS.md` §5 |
-| F17 | Medium | Web Speech `boundary` events are not fired by some voices and platforms (Chrome on Android, Google network voices), and its audio cannot be recorded | The browser voice is a labeled preview with sentence highlight when boundaries are missing and no offline audio | `DESIGN.md` §7.7 |
+| F17 | Medium | Web Speech `boundary` events are not fired by some voices and platforms (Chrome on Linux and Android, Google network voices), and its audio cannot be recorded | The browser voice still highlights one word. Duration comes from word length, punctuation, and rate, and a boundary snaps the clock when one arrives. Pause keeps the word. Play speaks from it. Audio is still not stored | `DESIGN.md` §7.7 |
 | F18 | Low | Kokoro normalizes text (numbers, abbreviations), so its word timestamps do not map 1:1 to printed words | Kokoro timings go through the same aligner | `PROVIDERS.md` §6 |
 | F19 | Low | Embeddings assumed an English model | Multilingual model when the detected language is not English; model id stored per vector | `DESIGN.md` §5.4 |
 | F20 | Low | Speed range 0.8–1.6 is narrower than audiobook listeners use | 0.5–3.0 with `preservesPitch` | `DESIGN.md` §7.5 |
@@ -145,7 +145,7 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D1 | PDF only until EPUB has a pagination step |
 | D2 | Whole-book Ready gate stays |
 | D3 | Chapter headings spoken once; **Speak headings** defaults on |
-| D4 | Word highlight is the bar when timings exist |
+| D4 | One word is highlighted while the voice runs. Timings win; otherwise a per-word estimate is used, and pause resumes from that word |
 | D5 | One voice at a time. The reader picks it. A sample can create an ElevenLabs voice. `speaker` does not select a voice |
 | D6 | 200 MB of prepared audio per book; keep the previous, current, and next chapter under pressure |
 | D7 | Chapter review is after Ready and does not block play |
@@ -173,3 +173,4 @@ Checked against the running reader on 25 October 2026.
 | R1 | Medium | The page was scaled to width only and capped, so a tall window left a large empty band under the page | The page is fitted to the free rectangle between the header and the player | `DESIGN.md` §7.8, reader |
 | R2 | Medium | Vendor settings were not on screen, and speech had no emotion, voice choice, or sample | Settings has VLLM, emotion analysis, and TTS, including a voice sample and ElevenLabs voice creation. The reader lists voices and emotions | `PROVIDERS.md` §1, `UX.md` §3.9 |
 | R3 | Medium | A seek had no buffer, and OCR was refused. Processing was not visible | The reader prepares the current page plus 2 or 3 ahead, shows **Buffering** while the page is prepared, OCRs sparse pages, and keeps a pipeline log | `DESIGN.md` §7.8 |
+| R4 | High | Play after Pause started the page again, and the highlight never moved because the browser voice sent no word boundaries | Pause keeps the current word. Play speaks from that word. The highlight advances on an estimated word clock and snaps to a boundary when the engine sends one. Stored audio pauses at `currentTime` | `DESIGN.md` §7.5, §7.7 |
