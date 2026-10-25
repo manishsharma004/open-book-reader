@@ -9,6 +9,7 @@ Status: discussion. Part of the design in [`DESIGN.md`](https://github.com/manis
 - **Degrade, don't stop.** Missing a text model, a speech model, word timings, or the network changes what the reader gets, and the UI says what changed. It does not block listening when listening is possible.
 - **The device holds the only copy.** The UI makes storage, persistence, and export visible, because losing browser data loses the library.
 - **Costs are visible before they are spent.** Before large model work, the UI shows character and token counts for the reader's vendor.
+- **The chrome looks like a book, not a dashboard.** Day is warm paper and walnut. Night is warm charcoal and brass. The palette, type, and highlight colors are Lamp in `DESIGN.md`.
 
 ## 2. Screen map
 
@@ -117,7 +118,8 @@ Shown when the book is Ready.
 - The scrubber covers the current chapter. Prepared ranges are shaded on it; scrubbing into an unprepared range shows **Preparing** at that point.
 - Status line: seconds prepared ahead and the highlight quality (**Word highlight**, **Sentence highlight**, **Preview voice**). Word highlight is the normal case. Sentence highlight is labeled as reduced.
 - Crossing a table shows **Table, not read** on that region and the audio continues at the next spoken span.
-- **View**: Page (default), Text (reflowed spans, adjustable font size and spacing), Side by side on wide screens.
+- **View**: Page (default), Text (reflowed spans in Literata, adjustable size, line height, and spacing), Side by side on wide screens.
+- The **Aa** menu sets size and Day, Night, or System. The first visit follows the system until the reader chooses.
 - **Follow along** is on by default. Manual page turns or scrolling switch it off and show **Back to reading position**.
 - Tap or click a word: seek there. Long-press or right-click a word: **Play from here**, **Fix pronunciation**, **Bookmark**, **Copy sentence**.
 - Table of contents drawer (☰): chapters, bookmarks, search.
@@ -143,7 +145,7 @@ Shown when the book is Ready.
 | Section | Contents |
 | --- | --- |
 | Connections | Profiles, assignments for text, speech, timing, **Test** per assignment, proxy URL (advanced), import and export |
-| Reading | Voice, emotional intensity (Off, Subtle, Full), speak footnotes and captions, speak headings (default on), highlight color, follow along, default speed |
+| Reading | Voice, emotional intensity (Off, Subtle, Full), speak footnotes and captions, speak headings (default on), highlight color (default Lamp amber), follow along, default speed, Day / Night / System |
 | Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, prepared-audio cap (default 200 MB per book), **Export library**, **Remove all prepared audio** |
 | Privacy | What each model call sends (table from `DESIGN.md`). **Send unreadable pages to the text model** is off and is enabled per book; the control says the page image is sent |
 | About | App version, server version and audio conversion status from `/v1/health` |

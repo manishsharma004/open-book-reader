@@ -152,3 +152,13 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D9 | Vision retry is off until the reader opts in per book |
 | D10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs |
 | D11 | Kokoro runs as its own compose service. It is not baked into the app image, and no text model is bundled |
+
+## 9. Stack
+
+The UI stack was unnamed. It is now decided, in `DESIGN.md` §12 and §12.1.
+
+| ID | Decision |
+| --- | --- |
+| S1 | The interface is Svelte 5 and SvelteKit with `adapter-static`. FastAPI serves the build and remains the only server |
+| S2 | Components are Tailwind CSS 4 and shadcn-svelte, copied into the app. The PDF highlight overlay is custom |
+| S3 | The theme is Lamp: warm paper and walnut by day, warm charcoal and brass at night, Literata for reading, Source Sans 3 for the chrome, amber word highlight |

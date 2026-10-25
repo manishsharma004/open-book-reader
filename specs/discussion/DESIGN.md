@@ -1,6 +1,6 @@
 # Open Book Reader — design discussion
 
-Status: discussion. Library and model choices are a proposal. These architecture rules are constraints:
+Status: discussion. The UI is Svelte and the server is FastAPI. Model vendors stay a proposal. These architecture rules are constraints:
 
 - The browser is the system of record. Book bytes, page and word geometry, chapters, spans, metadata, embeddings, transcripts, audio, playback position, task state, and vendor settings live in IndexedDB. Blob values hold the file and audio bytes.
 - The backend that runs transcription, analysis, and completion is a stateless proxy. A request carries the payload and the provider profile. The response is the whole result. The server stores none of the book and none of the settings.
@@ -577,19 +577,22 @@ Connection settings and profiles are in `PROVIDERS.md`. Reading settings live in
 | Speak headings (default on) | yes, for utterances that contain a heading |
 | Pronunciation fixes | yes, for utterances containing the term |
 | Speed | no |
-| Highlight color, follow-along, view mode | no |
+| Highlight color, follow-along, view mode, Day / Night / System | no |
 
 ## 12. Suggested stack
 
 ```text
-apps/web     Vite, React, TypeScript, PWA
-apps/server  FastAPI: serves apps/web build at / and the proxy at /v1, no database
+apps/web     Svelte 5, SvelteKit (adapter-static), TypeScript, Tailwind CSS 4, shadcn-svelte
+apps/server  FastAPI: serves the web build at / and the proxy at /v1, no database
 specs/       design discussion
 ```
 
-| Concern | Suggestion | Why |
+| Concern | Choice | Why |
 | --- | --- | --- |
-| Reader UI | Vite, React, TypeScript | Client-only app; storage is IndexedDB |
+| Reader UI | Svelte 5, SvelteKit, TypeScript | Client-only app; storage is IndexedDB. SvelteKit is how shadcn-svelte is meant to be installed |
+| Server output | `@sveltejs/adapter-static`, FastAPI serves `apps/web/build` | One process. The app has no SvelteKit server routes and no second backend |
+| Components | Tailwind CSS 4 and shadcn-svelte | Buttons, dialogs, sheets, menus, inputs, and toasts are copied into `$lib/components/ui`. The page highlight is custom, because it draws PDF boxes |
+| Theme | Lamp, below | Warm paper by day and warm charcoal at night |
 | Offline shell | Service worker | Library and prepared chapters open without the server |
 | PDF render and text | PDF.js | One library for the drawn page and the stored boxes |
 | Word splitting | `Intl.Segmenter` | Word boundaries in any language |
@@ -599,13 +602,34 @@ specs/       design discussion
 | Book export | fflate | Zip in the browser |
 | Playback | Two `<audio>` elements, Media Session API | Small gaps, lock-screen controls |
 | Preview voice | Web Speech `speechSynthesis` | Listening with no profiles |
-| Server | Python 3.12, FastAPI, httpx | Same-origin app and stateless proxy |
+| Server | Python 3.12, FastAPI, httpx, uvicorn | Same-origin app and stateless proxy. Static files at `/`, proxy at `/v1`, SPA fallback to `index.html` |
 | Audio normalization | ffmpeg per request on the server | WAV and PCM to Opus or AAC; nothing kept |
 | Packaging | Compose file: app server plus Kokoro as a second service | Level 1 works with no account. Kokoro is not inside the app image |
 
 The server must not grow a book table, user table, settings table, job queue, object storage, sticky sessions, or vendor keys of its own.
 
 The recommended compose file runs two services. `web` is the app server. `kokoro` is Kokoro-FastAPI, reachable from `web` and not published to the host. The speech profile's `baseUrl` points at that service, and the browser still only calls `/v1`. Kokoro keeps nothing of the book between requests. A text model is not bundled; the reader points a text profile at Ollama or a hosted vendor. OpenAI's current speech models are not the default: they are listed to shut down on January 6, 2027, and they return no word timings. Kokoro returns word timings, so the default setup needs no timing profile. A reader who wants a hosted voice instead uses Google Cloud TTS or ElevenLabs, both of which return timings. One voice speaks narration and dialogue. The transcript's `speaker` is kept for a later second voice and does not select a voice now.
+
+### 12.1 Lamp theme
+
+shadcn-svelte is the community Svelte port of shadcn. New projects use its `new-york` style, Tailwind 4, and OKLCH tokens. Lamp replaces the neutral base color with a reading palette. Tokens live in the global stylesheet as CSS variables, mapped with `@theme inline`, and `.dark` on `<html>` switches night. The choice is stored in settings. The first visit follows `prefers-color-scheme` until the reader picks Day, Night, or System from the text-size menu.
+
+Chrome (library, settings, player bar) uses the tokens below. The text view uses the reading surface, which is warmer and sets Literata. UI text uses Source Sans 3. Both fonts are files of the app, so they stay inside the existing `default-src 'self'` policy.
+
+| Token | Day | Night |
+| --- | --- | --- |
+| background | `oklch(0.97 0.015 95)` paper | `oklch(0.23 0.015 65)` warm charcoal |
+| foreground | `oklch(0.32 0.03 65)` ink | `oklch(0.93 0.015 95)` |
+| card | `oklch(0.985 0.008 95)` | `oklch(0.27 0.015 65)` |
+| primary | `oklch(0.40 0.06 55)` walnut | `oklch(0.80 0.08 85)` brass |
+| primary-foreground | `oklch(0.97 0.01 95)` | `oklch(0.25 0.03 65)` |
+| muted-foreground | `oklch(0.48 0.025 65)` | `oklch(0.74 0.02 90)` |
+| border | `oklch(0.88 0.02 90)` | `oklch(0.36 0.015 65)` |
+| ring | `oklch(0.62 0.10 75)` | `oklch(0.75 0.09 85)` |
+
+Radius is `0.5rem`. The reading surface is `oklch(0.965 0.02 95)` by day and `oklch(0.25 0.02 65)` at night, with Literata at `1.125rem`, line height `1.65`, and a measure of `66ch`.
+
+The spoken-word mark is an overlay on the PDF, so it is not a shadcn token. Default word fill is `oklch(0.86 0.13 88 / 50%)`, an amber pen, with a `2px` walnut underline `oklch(0.46 0.08 55)` on the sentence. The underline is the cue that stays visible if the fill is faint on the page. The high-contrast preset uses fill `oklch(0.78 0.15 80 / 70%)` and a `2px` outline `oklch(0.32 0.05 55)`. The reader can still change the highlight color in reading settings. Day and Night do not change cached audio.
 
 Interfaces:
 
