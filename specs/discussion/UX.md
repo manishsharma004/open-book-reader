@@ -124,6 +124,8 @@ Shown when the book is Ready.
 - **Follow along** is on by default. Manual page turns or scrolling switch it off and show **Back to reading position**.
 - Tap or click a word: seek there. Long-press or right-click a word: **Play from here**, **Fix pronunciation**, **Bookmark**, **Copy sentence**.
 - **Go to page** sits with Previous and Next. The reader types a page number and presses Enter, **Go**, or leaves the field. The number is clamped to the book. `G` focuses the field unless another field already has focus. Previous, Next, and the page slider stay.
+- The page slider shows the current page on its left and the total on its right. Dragging the slider updates the current page before the book opens that page.
+- A horizontal swipe on the page turns it. The page follows the finger, slides off, and the next page comes in from the other side. A short swipe snaps back. The first page does not move on to a previous page, and the last page does not move on to a next page. With reduced motion, the swipe changes the page without the slide.
 - Table of contents drawer (☰): chapters, bookmarks, search.
 - Search: text search across spans, with an option for **Similar passages** that uses the local embeddings.
 - Sleep timer (☾): 15, 30, 45, 60 minutes, end of chapter. Fades out over the last 10 seconds.
@@ -160,7 +162,7 @@ Shown when the book is Ready.
 | --- | --- | --- |
 | Play or pause. Pause keeps the position. Play continues from it | ▶ | `Space` or `K` |
 | Back or forward 15 s | ⟲15 / 15⟳ | `J` / `L` |
-| Previous or next page | Previous / Next, page slider | |
+| Previous or next page | Previous / Next, page slider (current page and total), swipe left or right | |
 | Go to a page number | Go to page | `G`, then the number and Enter |
 | Previous or next sentence | | `←` / `→` |
 | Previous or next chapter | ⏮ / ⏭ | `Shift+←` / `Shift+→` |
@@ -199,7 +201,7 @@ Headphone and lock-screen buttons use the Media Session API: play, pause, seek b
 - The highlight overlay is `aria-hidden`. The current sentence is not announced during playback, because a screen reader and the audiobook would talk over each other. When paused, the text view's focus moves to the current sentence.
 - Player state changes (Playing, Paused, Preparing, chapter changes) go to a polite live region.
 - Highlight colors meet 3:1 contrast against the page background, with the sentence underline as a second cue. A high-contrast highlight preset is available.
-- `prefers-reduced-motion`: page turns and scrolling jump instead of animating.
+- `prefers-reduced-motion`: page turns and scrolling jump instead of animating. A swipe still changes the page, without the slide.
 - Captions-like mode for listeners who are hard of hearing is the text view with follow along, which shows the spoken sentence in large type.
 - Book language sets the `lang` attribute on the text view, so assistive technology uses the right pronunciation rules.
 

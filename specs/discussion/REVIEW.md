@@ -81,6 +81,7 @@ Summary of the most important changes:
 | U8 | Medium | Uncertain chapter breaks were warnings with nowhere to fix them | Chapter review screen: move, merge, split, rename, front and back matter, with undo | `UX.md` §3.7 |
 | U9 | Low | When play waited, the reader was not told why or offered anything | **Preparing** with reason; after a delay, offer the preview voice or plain reading | `DESIGN.md` §7.2, `UX.md` §5 |
 | U10 | Low | A long book could only be reached by stepping or dragging the page slider | **Go to page** accepts a page number, clamps it to the book, and opens that page. `G` focuses the field | `UX.md` §3.6, §4 |
+| U11 | Low | The page slider did not say which page it was on, and the page could not be turned with a swipe | The slider shows the current page and the total. A horizontal swipe slides the page off and brings the next one in. Reduced motion skips the slide | `UX.md` §3.6, §4, §6 |
 
 ## 4. Feature completion
 

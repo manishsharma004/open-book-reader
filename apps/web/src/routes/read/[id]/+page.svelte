@@ -43,7 +43,11 @@
 
 	let stage = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
+	let pageSheet = $state<HTMLDivElement | null>(null);
 	let pageField = $state<HTMLInputElement | null>(null);
+	let dragX = $state(0);
+	let dragAnimate = $state(false);
+	let pageOpacity = $state(1);
 	let audio = $state<HTMLAudioElement | null>(null);
 	let pdf: PDFDocumentProxy | null = null;
 	let viewGen = 0;
@@ -53,6 +57,11 @@
 	let heldAudioTime: number | null = null;
 	let clockFrame = 0;
 	let clockRunning = false;
+	let turnLock = false;
+	let turnToken = 0;
+	let turnTimer = 0;
+	let swallowUntil = 0;
+	let gesture: { id: number; x: number; y: number; moved: boolean } | null = null;
 	let clockOrigin = 0;
 	let clockBase = 0;
 	let clockDurations: number[] = [];
@@ -133,6 +142,7 @@
 
 	onDestroy(() => {
 		halt();
+		window.clearTimeout(turnTimer);
 		attachDocument(null);
 		void pdf?.cleanup();
 	});
@@ -278,6 +288,117 @@
 		const target = Math.min(book.pageCount, Math.max(1, parsed));
 		pageDraft = String(target);
 		jump(target - 1);
+	}
+
+	function motionReduced() {
+		return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	}
+
+	function settleSheet() {
+		dragAnimate = true;
+		dragX = 0;
+		pageOpacity = 1;
+	}
+
+	function playTurn(direction: 1 | -1) {
+		if (!book || !stage) return;
+		if (motionReduced()) {
+			dragAnimate = false;
+			dragX = 0;
+			pageOpacity = 1;
+			turnLock = false;
+			jump(pageIndex + direction);
+			return;
+		}
+		const width = Math.max(stage.clientWidth, 1);
+		const token = ++turnToken;
+		let finished = false;
+		turnLock = true;
+		dragAnimate = true;
+		pageOpacity = 1;
+		dragX = direction > 0 ? -width : width;
+		const finish = () => {
+			if (finished || token !== turnToken) return;
+			finished = true;
+			pageSheet?.removeEventListener('transitionend', onEnd);
+			window.clearTimeout(turnTimer);
+			dragAnimate = false;
+			pageOpacity = 0;
+			const enter = Math.min(width * 0.22, 120);
+			dragX = direction > 0 ? enter : -enter;
+			jump(pageIndex + direction);
+			turnLock = false;
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					if (token !== turnToken) return;
+					dragAnimate = true;
+					pageOpacity = 1;
+					dragX = 0;
+				});
+			});
+		};
+		const onEnd = (event: TransitionEvent) => {
+			if (event.propertyName !== 'transform') return;
+			finish();
+		};
+		pageSheet?.addEventListener('transitionend', onEnd);
+		turnTimer = window.setTimeout(finish, 420);
+	}
+
+	function onPagePointerDown(event: PointerEvent) {
+		if (turnLock || event.button !== 0 || !book) return;
+		gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+	}
+
+	function onPagePointerMove(event: PointerEvent) {
+		if (!gesture || event.pointerId !== gesture.id || !book || !stage) return;
+		const dx = event.clientX - gesture.x;
+		const dy = event.clientY - gesture.y;
+		if (!gesture.moved) {
+			if (Math.hypot(dx, dy) < 12) return;
+			if (Math.abs(dy) > Math.abs(dx)) {
+				gesture = null;
+				return;
+			}
+			gesture.moved = true;
+			dragAnimate = false;
+			pageOpacity = 1;
+			try {
+				stage.setPointerCapture(event.pointerId);
+			} catch {
+				// The pointer can already be gone. The move still updates the page.
+			}
+		}
+		event.preventDefault();
+		const atStart = pageIndex <= 0 && dx > 0;
+		const atEnd = pageIndex >= book.pageCount - 1 && dx < 0;
+		dragX = atStart || atEnd ? dx * 0.2 : dx;
+	}
+
+	function onPagePointerUp(event: PointerEvent) {
+		if (!gesture || event.pointerId !== gesture.id || !book || !stage) return;
+		const dx = event.clientX - gesture.x;
+		const moved = gesture.moved;
+		gesture = null;
+		if (moved) swallowUntil = performance.now() + 250;
+		if (!moved) return;
+		const passed = Math.abs(dx) > Math.min(88, stage.clientWidth * 0.2);
+		if (passed && dx < 0 && pageIndex < book.pageCount - 1) playTurn(1);
+		else if (passed && dx > 0 && pageIndex > 0) playTurn(-1);
+		else settleSheet();
+	}
+
+	function onPagePointerCancel(event: PointerEvent) {
+		if (!gesture || event.pointerId !== gesture.id) return;
+		gesture = null;
+		settleSheet();
+	}
+
+	function onPageClickCapture(event: MouseEvent) {
+		if (performance.now() > swallowUntil) return;
+		swallowUntil = 0;
+		event.preventDefault();
+		event.stopPropagation();
 	}
 
 	function onReaderKey(event: KeyboardEvent) {
@@ -580,10 +701,32 @@
 	{:else}
 		<div class="flex min-h-0 flex-1 flex-col lg:flex-row">
 			<div class="relative min-h-0 min-w-0 flex-1">
-				<div class="absolute inset-0 overflow-hidden" bind:this={stage} aria-busy={buffering}>
+				<div
+					class="absolute inset-0 touch-none overflow-hidden"
+					bind:this={stage}
+					role="group"
+					aria-label="Book page"
+					aria-busy={buffering}
+					onpointerdown={onPagePointerDown}
+					onpointermove={onPagePointerMove}
+					onpointerup={onPagePointerUp}
+					onpointercancel={onPagePointerCancel}
+					onclickcapture={onPageClickCapture}
+				>
 					<div class="flex h-full w-full items-center justify-center">
 						<div class="relative">
-							<canvas bind:this={canvas} class="bg-white shadow-sm"></canvas>
+							<div class="bg-white shadow-sm absolute inset-0" aria-hidden="true"></div>
+							<div
+								bind:this={pageSheet}
+								class="relative bg-white shadow-sm"
+								class:shadow-xl={dragX !== 0}
+								data-page-sheet
+								data-drag={Math.round(dragX)}
+								style:transform={`translateX(${dragX}px)`}
+								style:opacity={pageOpacity}
+								style:transition={dragAnimate ? 'transform 300ms ease, opacity 220ms ease' : 'none'}
+							>
+							<canvas bind:this={canvas} class="bg-white"></canvas>
 							{#if viewport}
 								<div class="pointer-events-none absolute inset-0">
 									{#each words as word, index (`${index}:${word.charStart}`)}
@@ -605,6 +748,7 @@
 									{/each}
 								</div>
 							{/if}
+							</div>
 						</div>
 					</div>
 					{#if buffering}
@@ -653,16 +797,21 @@
 				<Button type="submit" variant="outline" size="sm" disabled={!book}>Go</Button>
 			</form>
 			{#if book && book.pageCount > 1}
-				<input
-					class="accent-primary w-40"
-					type="range"
-					min="0"
-					max={book.pageCount - 1}
-					value={shownPage}
-					aria-label="Page"
-					oninput={(event) => (scrub = Number((event.currentTarget as HTMLInputElement).value))}
-					onchange={(event) => jump(Number((event.currentTarget as HTMLInputElement).value))}
-				/>
+				<div class="flex items-center gap-2" data-page-slider>
+					<span class="text-muted-foreground w-10 text-right text-xs tabular-nums" data-slider-current>{shownPage + 1}</span>
+					<input
+						class="accent-primary w-36"
+						type="range"
+						min="0"
+						max={book.pageCount - 1}
+						value={shownPage}
+						aria-label={`Page ${shownPage + 1} of ${book.pageCount}`}
+						aria-valuetext={`${shownPage + 1} of ${book.pageCount}`}
+						oninput={(event) => (scrub = Number((event.currentTarget as HTMLInputElement).value))}
+						onchange={(event) => jump(Number((event.currentTarget as HTMLInputElement).value))}
+					/>
+					<span class="text-muted-foreground w-10 text-xs tabular-nums" data-slider-total>{book.pageCount}</span>
+				</div>
 			{/if}
 			<div class="flex min-w-36 flex-1 items-center gap-2">
 				<span class="text-muted-foreground text-xs tabular-nums">{rate.toFixed(1)}×</span>
