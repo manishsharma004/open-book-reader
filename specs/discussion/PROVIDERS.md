@@ -247,6 +247,8 @@ All rows return one JSON object for the named schema. The `structuredOutput` opt
 
 ## 6. Speech vendors
 
+Kokoro is the default speech engine: it returns word timings and needs no account, and the recommended compose file runs it next to the app server (`DESIGN.md` §12). The browser still calls only the proxy. OpenAI's current speech models are not the default; OpenAI lists them for shutdown on January 6, 2027, and they return no timings. A hosted voice, when the reader wants one, is Google Cloud TTS or ElevenLabs. The default Kokoro assignment leaves `timing` empty.
+
 | Vendor | Request | Auth | Voices | Emotion | Timings | Output | Input limit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `openai` | `POST {baseUrl}/audio/speech` | Bearer | Fixed list (`alloy`, `ash`, `coral`, ...) | `instructions` per request (`gpt-4o-mini-tts` only) | none | `response_format`: `opus`, `aac`, `mp3`, `wav`, `pcm` | 4,096 characters |

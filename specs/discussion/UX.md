@@ -44,7 +44,7 @@ flowchart LR
 
 Three choices, one screen:
 
-1. **This computer runs the models.** Fields prefilled for Ollama at `http://127.0.0.1:11434` and Kokoro at `http://127.0.0.1:8880`, each with **Test**.
+1. **This computer runs the models.** Kokoro is the recommended voice and ships beside the app server, so its fields are prefilled and tested first. Ollama at `http://127.0.0.1:11434` is prefilled for text. Each has **Test**.
 2. **Use a hosted vendor.** Vendor picker, API key field, **Test**.
 3. **Skip for now.** Explains level 0: local analysis and the browser's built-in voice, no stored audio.
 
@@ -115,7 +115,8 @@ Shown when the book is Ready.
 
 - Current word filled, current sentence underlined. The underline is a non-color cue.
 - The scrubber covers the current chapter. Prepared ranges are shaded on it; scrubbing into an unprepared range shows **Preparing** at that point.
-- Status line: seconds prepared ahead and the highlight quality (**Word highlight**, **Sentence highlight**, **Preview voice**).
+- Status line: seconds prepared ahead and the highlight quality (**Word highlight**, **Sentence highlight**, **Preview voice**). Word highlight is the normal case. Sentence highlight is labeled as reduced.
+- Crossing a table shows **Table, not read** on that region and the audio continues at the next spoken span.
 - **View**: Page (default), Text (reflowed spans, adjustable font size and spacing), Side by side on wide screens.
 - **Follow along** is on by default. Manual page turns or scrolling switch it off and show **Back to reading position**.
 - Tap or click a word: seek there. Long-press or right-click a word: **Play from here**, **Fix pronunciation**, **Bookmark**, **Copy sentence**.
@@ -142,9 +143,9 @@ Shown when the book is Ready.
 | Section | Contents |
 | --- | --- |
 | Connections | Profiles, assignments for text, speech, timing, **Test** per assignment, proxy URL (advanced), import and export |
-| Reading | Voice, emotional intensity (Off, Subtle, Full), speak footnotes and captions, speak headings, highlight color, follow along, default speed |
-| Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, keep prepared audio limit, **Export library**, **Remove all prepared audio** |
-| Privacy | What each model call sends (table from `DESIGN.md`), vision retry opt-in |
+| Reading | Voice, emotional intensity (Off, Subtle, Full), speak footnotes and captions, speak headings (default on), highlight color, follow along, default speed |
+| Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, prepared-audio cap (default 200 MB per book), **Export library**, **Remove all prepared audio** |
+| Privacy | What each model call sends (table from `DESIGN.md`). **Send unreadable pages to the text model** is off and is enabled per book; the control says the page image is sent |
 | About | App version, server version and audio conversion status from `/v1/health` |
 
 **Emotional intensity Off** sends no emotion directions; the transcript still adds punctuation and pauses.
@@ -179,6 +180,7 @@ Headphone and lock-screen buttons use the Media Session API: play, pause, seek b
 | Can't reach host | Toast | "The app server can't reach {host}. Is it running?" | Retry, Open settings |
 | App server offline | Banner | "Offline. Prepared chapters still play." | none |
 | Sentence highlight only | Status line | "Sentence highlight: this voice doesn't report word timing." | Add timing model |
+| Table skipped | Player, over the table | "Table, not read" | none |
 | Preview voice | Status line | "Preview voice: built into your browser. Connect a voice model for stored audio." | Connect |
 | Storage nearly full | Library banner | "Storage is 90% full. Old prepared audio will be removed first." | Manage storage |
 | Persistence denied | Settings → Storage | "The browser may clear this library when space is low. Export books you care about." | Export library |

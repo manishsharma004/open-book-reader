@@ -246,7 +246,8 @@ If the model cannot load, embed tasks become `skipped` with a warning, retrieval
 
 - Call `navigator.storage.persist()` after the first book is added and show the result in Settings → Storage.
 - Safari's tracking prevention deletes IndexedDB for a site after 7 days of browser use without interaction with that site. WebKit documents Home Screen web apps as exempt. Safari users are prompted to install the app before their first long processing run.
-- Under quota pressure, audio blobs outside the current lookahead are evicted first, oldest first. Source, pages, spans, embeddings, and metadata are kept.
+- Prepared audio is kept up to **200 MB per book** (a full novel at 32 kbps is about 155 MB). Source, pages, spans, embeddings, and metadata do not count toward that cap and are not evicted to free audio space.
+- Over the cap, or when the browser quota is short, audio outside the keep window is deleted oldest first. The keep window is the previous chapter, the current chapter, and the next chapter. If those three still do not fit, only the current chapter and the 90-second lookahead are kept.
 - Because the browser is the only copy, a book can be exported as one file (records plus source, audio optional) and imported elsewhere. See [Records](#8-records).
 
 ## 6. Batch processing
@@ -287,13 +288,16 @@ Each page stores index, size, words (text, box, reading-order index, role), conf
 
 | Role | Spoken by default |
 | --- | --- |
-| `prose`, `heading` | yes |
+| `prose` | yes |
+| `heading` | yes. The chapter title is spoken once. A later heading with different text is spoken. A repeat of a heading already spoken in that chapter stays silent. **Speak headings** defaults on |
 | `footnote`, `caption` | no, until enabled in reading settings |
 | `header`, `footer`, `page_number`, `table`, `unreadable` | no |
 
 Reading order: PDF.js returns items in content-stream order, which is usually but not always reading order. Columns are detected by clustering line starts. Pages where the order is uncertain get a warning that the reader can see on that page. Line-end hyphenation is joined into one spoken word that keeps both boxes.
 
-OCR words below a confidence threshold (start at 60 of 100) are `unreadable` and not spoken. An opt-in vision retry sends the page image to the text profile once. If the page still fails, playback shows a marker where the page would be read.
+OCR words below a confidence threshold (start at 60 of 100) are `unreadable` and not spoken. A vision retry sends the page image to the text profile once. It is off unless the reader turns on **Send unreadable pages to the text model** for that book, because the image leaves the device. If the page still fails, playback shows a marker where the page would be read.
+
+A table is not spoken. When playback reaches one, the player shows **Table, not read** on that region and continues at the next spoken span. Reading tables is not a setting in this version.
 
 ### 6.3 Chapter separation
 
@@ -309,7 +313,7 @@ Signals, strongest first:
 
 With no text profile, step 5 is skipped and the best local result is used with its confidence; chapters never block Ready. If nothing is found, the book is one chapter with a warning.
 
-Chapters store title, span range, confidence, `source` (`outline`, `toc`, `heading`, `embedding`, `model`), and `matter` (front or back). The reader can move, merge, split, or rename chapters after Ready. An edit increments the chapters revision and drops cached utterances that touch a changed boundary.
+Chapters store title, span range, confidence, `source` (`outline`, `toc`, `heading`, `embedding`, `model`), and `matter` (front or back). The reader reviews uncertain breaks after Ready, from the book home. Review is not part of the gate, so play is not held for it. An edit increments the chapters revision and drops cached utterances that touch a changed boundary. The first heading span of a chapter is spoken with the chapter; a later repeat of that heading is treated as a running header and stays silent.
 
 ### 6.4 Text analysis and metadata
 
@@ -345,7 +349,9 @@ A version is **Ready** when:
 5. `metadata-local` is done.
 6. `metadata-model` is done or skipped by the reader. A failed or blocked model step keeps the book not Ready, with the reason shown.
 
-Transcripts and audio are not part of the gate. After Ready, a `prepare-utterance` warm start begins at the resume position when a speech profile exists, so the first press of Play is usually immediate.
+Chapter review, transcripts, and audio are not part of the gate. Play is offered only after every chapter has finished processing. That is the original request.
+
+After Ready, a `prepare-utterance` warm start begins at the resume position when a speech profile exists, so the first press of Play is usually immediate.
 
 ### 6.6 The speakable span
 
@@ -451,7 +457,7 @@ Timings, best first:
 
 ### 7.5 Highlight sync
 
-The audio element is the only clock. `currentTime` and the segment's word timings select the word. Rate, pause, and scrubbing act on that element.
+The audio element is the only clock. `currentTime` and the segment's word timings select the word. Rate, pause, and scrubbing act on that element. Word highlight is required when the segment has word timings. Sentence highlight is only for a coarse segment, or for the preview voice when the browser reports no word boundaries.
 
 ```mermaid
 flowchart TD
@@ -568,6 +574,7 @@ Connection settings and profiles are in `PROVIDERS.md`. Reading settings live in
 | Voice | yes |
 | Emotional intensity (`off`, `subtle`, or `full`) | yes |
 | Footnotes and captions spoken | yes, for affected utterances |
+| Speak headings (default on) | yes, for utterances that contain a heading |
 | Pronunciation fixes | yes, for utterances containing the term |
 | Speed | no |
 | Highlight color, follow-along, view mode | no |
@@ -594,9 +601,11 @@ specs/       design discussion
 | Preview voice | Web Speech `speechSynthesis` | Listening with no profiles |
 | Server | Python 3.12, FastAPI, httpx | Same-origin app and stateless proxy |
 | Audio normalization | ffmpeg per request on the server | WAV and PCM to Opus or AAC; nothing kept |
-| Packaging | One container image and a single command | Readers run the server next to their model hosts |
+| Packaging | Compose file: app server plus Kokoro as a second service | Level 1 works with no account. Kokoro is not inside the app image |
 
 The server must not grow a book table, user table, settings table, job queue, object storage, sticky sessions, or vendor keys of its own.
+
+The recommended compose file runs two services. `web` is the app server. `kokoro` is Kokoro-FastAPI, reachable from `web` and not published to the host. The speech profile's `baseUrl` points at that service, and the browser still only calls `/v1`. Kokoro keeps nothing of the book between requests. A text model is not bundled; the reader points a text profile at Ollama or a hosted vendor. OpenAI's current speech models are not the default: they are listed to shut down on January 6, 2027, and they return no word timings. Kokoro returns word timings, so the default setup needs no timing profile. A reader who wants a hosted voice instead uses Google Cloud TTS or ElevenLabs, both of which return timings. One voice speaks narration and dialogue. The transcript's `speaker` is kept for a later second voice and does not select a voice now.
 
 Interfaces:
 
@@ -631,19 +640,23 @@ The UI shows the character and token counts before the reader prepares a whole b
 
 Realtime prep has to produce 20 seconds of audio in under 20 seconds divided by the playback rate. A hosted text model and hosted speech usually take a few seconds per utterance. A local 8B model on a consumer GPU plus Kokoro is usually within budget at 1.0×. CPU-only local setups often are not, which is why the throughput hint and Prepare ahead exist.
 
-## 14. Open questions
+## 14. Decisions
 
-1. Is PDF-only the right first upload, with EPUB later?
-2. Keep the whole-book Ready gate, or allow play from chapter 1 while later chapters process? This design keeps the gate as requested.
-3. Speak headings such as "Chapter 3"?
-4. Is word-level highlight the acceptance bar, with sentence highlight only as the degraded mode?
-5. One voice for narration and dialogue, or a second voice when `speaker` is set?
-6. How much prepared audio should be kept per book before eviction?
-7. Should uncertain chapter breaks be reviewed before Ready or after?
-8. Are tables ever spoken?
-9. Is the opt-in vision retry acceptable, given it sends page images?
-10. Which speech vendor is the default recommendation, given OpenAI's current speech models shut down on January 6, 2027?
-11. Should the server image bundle a local speech engine (for example Kokoro) so level 1 works without any account?
+These were open questions. They are decided.
+
+| # | Decision | Where it lives |
+| --- | --- | --- |
+| 1 | The first upload is PDF only. EPUB waits on a pagination step that can give stable pages | [Upload](#61-upload) |
+| 2 | Play waits until the whole book passes the Ready gate | [When play becomes available](#65-when-play-becomes-available) |
+| 3 | The chapter heading is spoken once, at the start of the chapter. **Speak headings** defaults on. Running headers stay silent | [Page analysis](#62-page-analysis) |
+| 4 | Word highlight is the bar whenever a timing source exists. Sentence highlight is only the coarse and preview-voice fallback | [Highlight sync](#75-highlight-sync) |
+| 5 | One voice speaks narration and dialogue. `speaker` is stored and does not select a voice | [Suggested stack](#12-suggested-stack) |
+| 6 | Prepared audio is kept up to 200 MB per book. Under pressure the previous, current, and next chapters are kept and older audio is dropped | [Persistence and eviction](#55-persistence-and-eviction) |
+| 7 | Uncertain chapter breaks are reviewed after Ready. The flag does not block play | [Chapter separation](#63-chapter-separation) |
+| 8 | Tables are not spoken. Playback shows **Table, not read** and continues | [Page analysis](#62-page-analysis) |
+| 9 | Vision retry is off until the reader opts in for that book, because it sends a page image | [Page analysis](#62-page-analysis) |
+| 10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs. OpenAI speech is not the default | [Suggested stack](#12-suggested-stack) |
+| 11 | The recommended compose file runs Kokoro as its own service next to the app server. The app image does not contain the speech weights, and no text model is bundled | [Suggested stack](#12-suggested-stack) |
 
 ## 15. Follow-up discussions
 
@@ -673,3 +686,5 @@ With a short PDF we have rights to use:
 11. The network log shows model calls going to the app server origin, not to vendor hosts.
 12. A book exported in one browser and imported in another plays from the same position.
 13. Level 0 plays a chapter with the browser voice and sentence or word highlight.
+14. With Kokoro, a paused `currentTime` highlights one word. Sentence highlight appears only for a coarse segment or a preview voice with no boundaries.
+15. Playback skips a table and shows **Table, not read**. The chapter heading is spoken once.
