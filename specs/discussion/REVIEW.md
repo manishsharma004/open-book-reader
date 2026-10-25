@@ -145,7 +145,7 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D2 | Whole-book Ready gate stays |
 | D3 | Chapter headings spoken once; **Speak headings** defaults on |
 | D4 | Word highlight is the bar when timings exist |
-| D5 | One voice. `speaker` does not select a voice |
+| D5 | One voice at a time. The reader picks it. A sample can create an ElevenLabs voice. `speaker` does not select a voice |
 | D6 | 200 MB of prepared audio per book; keep the previous, current, and next chapter under pressure |
 | D7 | Chapter review is after Ready and does not block play |
 | D8 | Tables are not spoken; the player shows **Table, not read** |
@@ -161,4 +161,14 @@ The UI stack was unnamed. It is now decided, in `DESIGN.md` §12 and §12.1.
 | --- | --- |
 | S1 | The interface is Svelte 5 and SvelteKit with `adapter-static`. FastAPI serves the build and remains the only server |
 | S2 | Components are Tailwind CSS 4 and shadcn-svelte, copied into the app. The PDF highlight overlay is custom |
-| S3 | The theme is Lamp: warm paper and walnut by day, warm charcoal and brass at night, Literata for reading, Source Sans 3 for the chrome, amber word highlight |
+| S3 | Ink is the default palette: cool paper and ink blue by day, blue-black at night. Lamp stays available. Literata for reading, Source Sans 3 for the chrome |
+
+## 10. Reader pass
+
+Checked against the running reader on 25 October 2026.
+
+| ID | Sev. | Finding | Resolution | Where |
+| --- | --- | --- | --- | --- |
+| R1 | Medium | The page was scaled to width only and capped, so a tall window left a large empty band under the page | The page is fitted to the free rectangle between the header and the player | `DESIGN.md` §7.8, reader |
+| R2 | Medium | Vendor settings were not on screen, and speech had no emotion, voice choice, or sample | Settings has VLLM, emotion analysis, and TTS, including a voice sample and ElevenLabs voice creation. The reader lists voices and emotions | `PROVIDERS.md` §1, `UX.md` §3.9 |
+| R3 | Medium | A seek had no buffer, and OCR was refused. Processing was not visible | The reader prepares the current page plus 2 or 3 ahead, shows **Buffering** while the page is prepared, OCRs sparse pages, and keeps a pipeline log | `DESIGN.md` §7.8 |

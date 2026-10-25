@@ -28,7 +28,7 @@ These constraints are already decided in `specs/discussion/DESIGN.md`. Keep them
 - Book data, embeddings, analysis results, audio, playback position, task state, and vendor settings stay in the browser, in IndexedDB. File and audio bytes are Blob values.
 - The backend for transcription, analysis, and completion is a stateless proxy. It does not store the book or the settings. Each request includes the provider profile, and the proxy forwards it to that profile's base URL so the browser does not call the vendor directly.
 - The app and the proxy are served from the same origin by default, because browsers block or prompt for HTTPS pages calling LAN and loopback addresses. See `PROVIDERS.md`.
-- The UI is Svelte 5, SvelteKit with static output, Tailwind CSS, and shadcn-svelte, using the Lamp theme. The server is FastAPI. See `DESIGN.md` section 12.
+- The UI is Svelte 5, SvelteKit with static output, Tailwind CSS, and shadcn-svelte. Ink is the default palette and Lamp stays available. The server is FastAPI. See `DESIGN.md` section 12.
 
 ## Vendor facts
 

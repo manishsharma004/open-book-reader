@@ -9,7 +9,7 @@ Status: discussion. Part of the design in [`DESIGN.md`](https://github.com/manis
 - **Degrade, don't stop.** Missing a text model, a speech model, word timings, or the network changes what the reader gets, and the UI says what changed. It does not block listening when listening is possible.
 - **The device holds the only copy.** The UI makes storage, persistence, and export visible, because losing browser data loses the library.
 - **Costs are visible before they are spent.** Before large model work, the UI shows character and token counts for the reader's vendor.
-- **The chrome looks like a book, not a dashboard.** Day is warm paper and walnut. Night is warm charcoal and brass. The palette, type, and highlight colors are Lamp in `DESIGN.md`.
+- **The chrome looks like a book, not a dashboard.** The default palette is Ink: cool paper and ink blue by day, blue-black at night. Lamp, the warm paper palette, stays available. Type and the highlight treatment are in `DESIGN.md`.
 
 ## 2. Screen map
 
@@ -144,8 +144,8 @@ Shown when the book is Ready.
 
 | Section | Contents |
 | --- | --- |
-| Connections | Profiles, assignments for text, speech, timing, **Test** per assignment, proxy URL (advanced), import and export |
-| Reading | Voice, emotional intensity (Off, Subtle, Full), speak footnotes and captions, speak headings (default on), highlight color (default Lamp amber), follow along, default speed, Day / Night / System |
+| Connections | Separate forms for VLLM, emotion analysis, and TTS. Each has a base URL, model, and API key. TTS also has vendor, voice id, a voice sample, and **Create ElevenLabs voice**. **Test** calls the proxy |
+| Reading | Palette (Ink or Lamp), pages prepared ahead (2 or 3), OCR language, browser voice or vendor voice, emotion (auto or a named emotion), Day / Night / System |
 | Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, prepared-audio cap (default 200 MB per book), **Export library**, **Remove all prepared audio** |
 | Privacy | What each model call sends (table from `DESIGN.md`). **Send unreadable pages to the text model** is off and is enabled per book; the control says the page image is sent |
 | About | App version, server version and audio conversion status from `/v1/health` |

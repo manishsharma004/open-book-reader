@@ -498,6 +498,16 @@ At `currentTime = 1.80` the word **station** is highlighted and the whole senten
 
 With no speech profile, the player uses `speechSynthesis` per span. This mode has a different clock: `boundary` events with `charIndex` select the word. Seeking is per sentence, not within a sentence. Audio cannot be captured or stored, so there is no offline listening. Some voices and platforms do not fire boundary events (notably Chrome on Android, and network voices on desktop Chrome); then the sentence is highlighted instead. The UI labels this mode as a preview voice.
 
+The browser voice can still mark emotion. Each named emotion changes pitch, rate, and volume, and the player says that this is not model expression. A chosen emotion applies to the page. **Auto** asks the emotion model, or the VLLM profile when emotion analysis is off, for clause emotions. With no model, auto stays neutral.
+
+### 7.8 Page buffer
+
+The reader prepares the visible page and a fixed number of following pages, 2 or 3, chosen in settings. That window is the buffer. Seeking to a page that is not ready shows **Buffering**, with the step in progress, and playback waits for that page. Pages outside the window are dropped from the queue. The 90-second utterance lookahead above remains the target once stored audio exists; this page window is what the reader runs before that audio exists.
+
+A page with fewer than 8 text-layer words is read with tesseract.js in the browser. English trained data ships with the app. The language code is a setting. Word boxes from OCR are converted back into PDF space so the highlight sits on the page image.
+
+Each step is written to the pipeline log on the reader: text layer, OCR, emotion, speech, and buffer. The log records status, duration, host, model, and the text or error. It does not record API keys.
+
 ## 8. Records
 
 ```mermaid
@@ -592,7 +602,7 @@ specs/       design discussion
 | Reader UI | Svelte 5, SvelteKit, TypeScript | Client-only app; storage is IndexedDB. SvelteKit is how shadcn-svelte is meant to be installed |
 | Server output | `@sveltejs/adapter-static`, FastAPI serves `apps/web/build` | One process. The app has no SvelteKit server routes and no second backend |
 | Components | Tailwind CSS 4 and shadcn-svelte | Buttons, dialogs, sheets, menus, inputs, and toasts are copied into `$lib/components/ui`. The page highlight is custom, because it draws PDF boxes |
-| Theme | Lamp, below | Warm paper by day and warm charcoal at night |
+| Theme | Ink by default, Lamp kept | Ink is cool gray and ink blue. Lamp remains the warm paper palette |
 | Offline shell | Service worker | Library and prepared chapters open without the server |
 | PDF render and text | PDF.js | One library for the drawn page and the stored boxes |
 | Word splitting | `Intl.Segmenter` | Word boundaries in any language |
@@ -609,6 +619,10 @@ specs/       design discussion
 The server must not grow a book table, user table, settings table, job queue, object storage, sticky sessions, or vendor keys of its own.
 
 The recommended compose file runs two services. `web` is the app server. `kokoro` is Kokoro-FastAPI, reachable from `web` and not published to the host. The speech profile's `baseUrl` points at that service, and the browser still only calls `/v1`. Kokoro keeps nothing of the book between requests. A text model is not bundled; the reader points a text profile at Ollama or a hosted vendor. OpenAI's current speech models are not the default: they are listed to shut down on January 6, 2027, and they return no word timings. Kokoro returns word timings, so the default setup needs no timing profile. A reader who wants a hosted voice instead uses Google Cloud TTS or ElevenLabs, both of which return timings. One voice speaks narration and dialogue. The transcript's `speaker` is kept for a later second voice and does not select a voice now.
+
+### 12.2 Ink and Lamp
+
+Ink is the default palette. Day is cool paper and ink blue. Night is a blue-black with a light ink primary. Lamp stays available: warm paper and walnut by day, warm charcoal and brass at night. The choice is `ink` or `lamp` in settings and on the reader, stored as `obr-palette`, separate from Day / Night / System. Both palettes use the same type and the same highlight treatment, with the highlight color following the palette.
 
 ### 12.1 Lamp theme
 
@@ -674,7 +688,7 @@ These were open questions. They are decided.
 | 2 | Play waits until the whole book passes the Ready gate | [When play becomes available](#65-when-play-becomes-available) |
 | 3 | The chapter heading is spoken once, at the start of the chapter. **Speak headings** defaults on. Running headers stay silent | [Page analysis](#62-page-analysis) |
 | 4 | Word highlight is the bar whenever a timing source exists. Sentence highlight is only the coarse and preview-voice fallback | [Highlight sync](#75-highlight-sync) |
-| 5 | One voice speaks narration and dialogue. `speaker` is stored and does not select a voice | [Suggested stack](#12-suggested-stack) |
+| 5 | One voice speaks at a time. The reader picks a browser voice or a vendor voice id. A sample can create an ElevenLabs voice. `speaker` is stored and does not select a voice | [Suggested stack](#12-suggested-stack), [Page buffer](#78-page-buffer) |
 | 6 | Prepared audio is kept up to 200 MB per book. Under pressure the previous, current, and next chapters are kept and older audio is dropped | [Persistence and eviction](#55-persistence-and-eviction) |
 | 7 | Uncertain chapter breaks are reviewed after Ready. The flag does not block play | [Chapter separation](#63-chapter-separation) |
 | 8 | Tables are not spoken. Playback shows **Table, not read** and continues | [Page analysis](#62-page-analysis) |
