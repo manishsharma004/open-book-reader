@@ -19,6 +19,7 @@ export type TtsVendor = 'browser' | 'openai' | 'kokoro' | 'elevenlabs' | 'pocket
 
 export const POCKET_MODEL = 'english_18m_refl_2026-10';
 export const POCKET_VOICE = 'alba';
+export const POCKET_PORT = '7508';
 const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '192.168.29.45']);
 
 export type Endpoint = {
@@ -103,6 +104,25 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 	const vendor = raw.tts && typeof raw.tts === 'object' ? (raw.tts as Record<string, unknown>).vendor : undefined;
 	const lookahead = raw.lookahead === 3 ? 3 : 2;
 	const ttsRaw = raw.tts && typeof raw.tts === 'object' ? (raw.tts as Record<string, unknown>) : {};
+	const vendorName =
+		vendor === 'openai' || vendor === 'kokoro' || vendor === 'elevenlabs' || vendor === 'pocket' || vendor === 'browser'
+			? vendor
+			: 'browser';
+	let baseUrl = typeof ttsRaw.baseUrl === 'string' ? ttsRaw.baseUrl : base.tts.baseUrl;
+	if (vendorName === 'pocket') {
+		try {
+			const current = new URL(baseUrl);
+			if (current.port === '8000' && POCKET_HOSTS.has(current.hostname)) {
+				current.port = POCKET_PORT;
+				current.pathname = '';
+				current.search = '';
+				current.hash = '';
+				baseUrl = current.origin;
+			}
+		} catch {
+			baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
+		}
+	}
 	return {
 		theme: theme === 'day' || theme === 'night' || theme === 'system' ? theme : base.theme,
 		palette: palette === 'lamp' || palette === 'ink' ? palette : base.palette,
@@ -116,11 +136,8 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 		vllm: endpoint(raw.vllm, base.vllm),
 		emotionModel: endpoint(raw.emotionModel, base.emotionModel),
 		tts: {
-			vendor:
-				vendor === 'openai' || vendor === 'kokoro' || vendor === 'elevenlabs' || vendor === 'pocket' || vendor === 'browser'
-					? vendor
-					: 'browser',
-			baseUrl: typeof ttsRaw.baseUrl === 'string' ? ttsRaw.baseUrl : base.tts.baseUrl,
+			vendor: vendorName,
+			baseUrl,
 			model: typeof ttsRaw.model === 'string' ? ttsRaw.model : base.tts.model,
 			apiKey: typeof ttsRaw.apiKey === 'string' ? ttsRaw.apiKey : '',
 			voice: typeof ttsRaw.voice === 'string' ? ttsRaw.voice : base.tts.voice
@@ -139,14 +156,14 @@ function speechUrl(value: string) {
 export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 	if (tts.vendor === 'pocket' && previous !== 'pocket') {
 		const current = speechUrl(tts.baseUrl);
-		if (current && current.port === '8880' && POCKET_HOSTS.has(current.hostname)) {
-			current.port = '8000';
+		if (current && (current.port === '8880' || current.port === '8000') && POCKET_HOSTS.has(current.hostname)) {
+			current.port = POCKET_PORT;
 			current.pathname = '';
 			current.search = '';
 			current.hash = '';
 			tts.baseUrl = current.origin;
-		} else if (!current || current.port !== '8000' || !POCKET_HOSTS.has(current.hostname)) {
-			tts.baseUrl = 'http://127.0.0.1:8000';
+		} else if (!current || current.port !== POCKET_PORT || !POCKET_HOSTS.has(current.hostname)) {
+			tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
 		}
 		if (!tts.model || tts.model === 'kokoro' || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
 			tts.model = POCKET_MODEL;
@@ -155,7 +172,7 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 	}
 	if (tts.vendor === 'kokoro' && previous === 'pocket') {
 		const current = speechUrl(tts.baseUrl);
-		if (current && current.port === '8000' && POCKET_HOSTS.has(current.hostname)) {
+		if (current && current.port === POCKET_PORT && POCKET_HOSTS.has(current.hostname)) {
 			current.port = '8880';
 			current.pathname = '/v1';
 			tts.baseUrl = `${current.origin}/v1`;
