@@ -10,6 +10,7 @@
 		attachDocument,
 		bufferSnapshot,
 		bufferSpeech,
+		cachedPage,
 		ensurePage,
 		onBuffer,
 		warm,
@@ -36,6 +37,7 @@
 	let prepared = $state<PreparedPage | null>(null);
 	let activeWord = $state(-1);
 	let playing = $state(false);
+	let carryPage = -1;
 	let rate = $state(1);
 	let buffering = $state(false);
 	let viewport = $state<PageViewport | null>(null);
@@ -216,12 +218,22 @@
 		if (audio) audio.playbackRate = speed;
 	});
 
+	function upcomingUrl(index: number) {
+		const page = prepared;
+		const same = index >= 0 ? page?.clips[index + 1]?.audioUrl : null;
+		if (same) return same;
+		if (!page || !settings || !book || index < 0 || index !== page.clips.length - 1) return null;
+		if (pageIndex >= book.pageCount - 1) return null;
+		const next = cachedPage(pageIndex + 1, settings);
+		return next?.clips.find((clip) => clip.audioUrl)?.audioUrl ?? null;
+	}
+
 	$effect(() => {
 		bufferTick;
 		const index = playingClip;
-		const upcoming = index >= 0 ? prepared?.clips[index + 1] : undefined;
-		if (!upcoming?.audioUrl) return;
-		arm(decks().find((node) => node !== audio) ?? null, upcoming.audioUrl);
+		const url = upcomingUrl(index);
+		if (!url) return;
+		arm(decks().find((node) => node !== audio) ?? null, url);
 	});
 
 	$effect(() => {
@@ -295,6 +307,8 @@
 		if (!token || !currentSettings || !pageCount) return;
 		const gen = ++viewGen;
 		let cancelled = false;
+		const resumeHere = carryPage === index;
+		if (!resumeHere) carryPage = -1;
 		halt();
 		activeWord = -1;
 		const timer = setTimeout(() => {
@@ -311,7 +325,13 @@
 				bufferTick += 1;
 				await paint();
 				if (cancelled || gen !== viewGen) return;
-				if (currentSettings.tts.vendor !== 'browser' && page.clips.length > 0) playFrom(0);
+				const speakable = page.clips.length > 0 || page.words.some((word) => word.role !== 'header');
+				if (resumeHere && !speakable && index < pageCount - 1) {
+					carryPage = index + 1;
+					jump(index + 1);
+					return;
+				}
+				if (resumeHere || (currentSettings.tts.vendor !== 'browser' && page.clips.length > 0)) playFrom(0);
 			})
 			.catch((caught) => {
 				if (caught instanceof DOMException && caught.name === 'AbortError') return;
@@ -521,28 +541,39 @@
 		activeWord = -1;
 		resumeWord = 0;
 		heldAudioTime = null;
+		heldClip = -1;
+	}
+
+	function finishPage(token: number) {
+		if (token !== playToken) return;
+		if (book && pageIndex < book.pageCount - 1) {
+			carryPage = pageIndex + 1;
+			jump(pageIndex + 1);
+			return;
+		}
+		finishPlayback();
 	}
 
 	function playBrowser(fromWord: number, token: number) {
 		if (!prepared || !settings) return;
-		const clauses = prepared.clauses.filter((clause) => clause.wordEnd > fromWord);
+		const clips = prepared.clips.filter((clip) => clip.wordEnd > fromWord);
 		let cursor = 0;
 		const speakNext = () => {
 			if (token !== playToken) return;
-			if (cursor >= clauses.length) {
-				finishPlayback();
+			if (cursor >= clips.length) {
+				finishPage(token);
 				return;
 			}
-			const clause = clauses[cursor];
+			const clip = clips[cursor];
 			cursor += 1;
-			const start = Math.max(fromWord, clause.wordStart);
-			const slice = words.slice(start, clause.wordEnd);
-			const spoken = slice.map((word) => word.text).join(' ');
+			const start = Math.max(fromWord, clip.wordStart);
+			const slice = words.slice(start, clip.wordEnd);
+			const spoken = start === clip.wordStart ? clip.text : slice.map((word) => word.text).join(' ');
 			if (!spoken) {
 				speakNext();
 				return;
 			}
-			const delivery = browserDelivery(clause.emotion, rate);
+			const delivery = browserDelivery(clip.emotion, rate);
 			let utterance: SpeechSynthesisUtterance;
 			try {
 				utterance = createUtterance(spoken);
@@ -694,8 +725,7 @@
 		if (!player) return;
 		if (audio && audio !== player) audio.pause();
 		audio = player;
-		const next = prepared.clips[index + 1];
-		arm(decks().find((node) => node !== player) ?? null, next?.audioUrl);
+		arm(decks().find((node) => node !== player) ?? null, upcomingUrl(index));
 		player.playbackRate = rate;
 		const apply = () => {
 			if (token !== playToken) return;
@@ -708,7 +738,7 @@
 			stopClock();
 			const following = index + 1;
 			if (!prepared || following >= prepared.clips.length) {
-				finishPlayback();
+				finishPage(token);
 				return;
 			}
 			playClip(following, prepared.clips[following].wordStart, token, null);
@@ -880,13 +910,17 @@
 											class="pointer-events-auto absolute rounded-sm"
 											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{wordBackdrop(
 												index === activeWord || activeWord === -2,
-												readyWords[index] === true
+												readyWords[index] === true,
+												word.role
 											)};box-shadow:{index === activeWord || activeWord === -2
 												? 'inset 0 -2px 0 var(--highlight-line)'
-												: 'none'}"
+												: word.role === 'heading'
+													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
+													: 'none'}"
 											aria-label={word.text}
 											aria-current={index === activeWord ? 'true' : undefined}
 											data-word={index}
+											data-role={word.role}
 											data-speech-ready={readyWords[index] ? 'true' : 'false'}
 											onclick={() => playFrom(index, { seek: true })}
 										></button>

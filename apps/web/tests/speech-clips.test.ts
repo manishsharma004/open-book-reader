@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	clipIndexForWord,
+	HEADING_TINT,
 	READY_TINT,
 	SPEECH_CHUNK_WORDS,
 	speechPace,
@@ -78,4 +79,20 @@ test('a ready word is a light green tint and the active word keeps the highlight
 	assert.equal(wordBackdrop(false, true), READY_TINT);
 	assert.equal(wordBackdrop(true, true), 'var(--highlight)');
 	assert.equal(wordBackdrop(false, false), 'transparent');
+	assert.equal(wordBackdrop(false, false, 'heading'), HEADING_TINT);
+	assert.equal(wordBackdrop(false, true, 'heading'), READY_TINT);
+	assert.equal(wordBackdrop(false, true, 'header'), 'transparent');
+});
+
+test('a chapter title stays its own clip and a header is skipped', () => {
+	const words = ['12', 'Chapter', '1', 'Mara', 'waited.', 'Noon', 'passed.'];
+	const roles = ['header', 'heading', 'heading', 'body', 'body', 'body', 'body'] as const;
+	const spans = splitSpeechWords(words, 24, [...roles]);
+	assert.deepEqual(spans, [
+		{ wordStart: 1, wordEnd: 3 },
+		{ wordStart: 3, wordEnd: 7 }
+	]);
+	assert.equal(clipIndexForWord(spans, 0), 0);
+	assert.equal(clipIndexForWord(spans, 3), 1);
+	assert.equal(clipIndexForWord(spans, 7), -1);
 });
