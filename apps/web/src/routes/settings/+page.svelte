@@ -5,7 +5,7 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import { EMOTIONS, clearVoiceSample, saveVoiceSample, voiceSample } from '#lib/settings.js';
+	import { EMOTIONS, applyTtsVendorDefaults, clearVoiceSample, saveVoiceSample, voiceSample, type TtsVendor } from '#lib/settings.js';
 	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import type { Palette } from '#lib/theme.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
@@ -70,12 +70,23 @@
 
 	async function testSpeech() {
 		if (!settings || settings.tts.vendor === 'browser') {
-			speechResult = 'Choose OpenAI-compatible, Kokoro, or ElevenLabs to test a voice host.';
+			speechResult = 'Choose Kokoro, Pocket, OpenAI, or ElevenLabs to test a voice host.';
 			return;
 		}
 		speechResult = 'Calling…';
 		try {
-			const result = await speak(settings.tts, 'Hello from Open Book Reader.', 'calm', 'Speak calmly.', null, false);
+			const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+			const sample = useSample ? await voiceSample(settings) : undefined;
+			const sampleBase64 = sample ? toBase64(new Uint8Array(await sample.arrayBuffer())) : null;
+			const result = await speak(
+				settings.tts,
+				'Hello from Open Book Reader.',
+				'calm',
+				'Speak calmly.',
+				sampleBase64,
+				Boolean(sample),
+				sample?.type || null
+			);
 			speechResult = `${result.delivery} ${result.blob.size} bytes.`;
 			const audio = new Audio(URL.createObjectURL(result.blob));
 			await audio.play();
@@ -229,22 +240,34 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. For a cloned voice on an 8GB GPU, run Kyutai Pocket TTS english_18m on the CPU and keep the sample below as its reference. That leaves the GPU for the text model. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 8000 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. Choosing Pocket points this form at that service. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
 				<div class="grid gap-1.5">
 					<Label for="tts-vendor">Vendor</Label>
-					<select id="tts-vendor" class={field} bind:value={settings.tts.vendor}>
+					<select
+						id="tts-vendor"
+						class={field}
+						value={settings.tts.vendor}
+						onchange={(event) => {
+							if (!settings) return;
+							const next = event.currentTarget.value as TtsVendor;
+							const previous = settings.tts.vendor;
+							settings.tts.vendor = next;
+							applyTtsVendorDefaults(settings.tts, previous);
+						}}
+					>
 						<option value="browser">Browser voice</option>
 						<option value="kokoro">Kokoro</option>
+						<option value="pocket">Pocket TTS</option>
 						<option value="openai">OpenAI-compatible</option>
 						<option value="elevenlabs">ElevenLabs</option>
 					</select>
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="tts-url">Base URL</Label>
-					<Input id="tts-url" bind:value={settings.tts.baseUrl} placeholder="http://127.0.0.1:8880/v1" />
+					<Input id="tts-url" bind:value={settings.tts.baseUrl} placeholder="http://127.0.0.1:8000" />
 				</div>
 				<div class="grid gap-1.5 sm:grid-cols-2">
 					<div class="grid gap-1.5">
@@ -266,7 +289,7 @@
 				<div class="border-border grid gap-3 border-t pt-3">
 					<h3 class="text-sm font-medium">Voice sample</h3>
 					<p class="text-muted-foreground text-xs">
-						The sample stays in this browser. It is the reference clip for Pocket TTS. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
+						The sample stays in this browser. Pocket TTS receives it as the reference clip on each request. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
 					<Input type="file" accept="audio/*" onchange={onSample} />
 					{#if settings.cloneFileName}
@@ -285,7 +308,7 @@
 					{/if}
 					<label class="flex items-center gap-2 text-sm">
 						<input type="checkbox" bind:checked={settings.sendSample} />
-						Send the sample as reference audio when the host accepts it
+						Send the sample as reference audio when the host accepts it. Pocket sends a saved sample either way.
 					</label>
 					<Button variant="outline" size="sm" class="w-fit" onclick={createClone} disabled={settings.tts.vendor !== 'elevenlabs'}>
 						Create ElevenLabs voice

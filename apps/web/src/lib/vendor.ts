@@ -38,7 +38,8 @@ export async function speak(
 	emotion: EmotionName,
 	instructions: string,
 	sampleBase64: string | null,
-	attachSample: boolean
+	attachSample: boolean,
+	sampleMime: string | null = null
 ) {
 	const payload = await postJson('/v1/speak', {
 		vendor: settings.vendor,
@@ -49,7 +50,8 @@ export async function speak(
 		text,
 		emotion,
 		instructions,
-		sampleBase64: attachSample ? sampleBase64 : null
+		sampleBase64: attachSample ? sampleBase64 : null,
+		sampleMime: attachSample ? sampleMime || '' : ''
 	});
 	const audioBase64 = typeof payload.audioBase64 === 'string' ? payload.audioBase64 : '';
 	if (!audioBase64) throw new Error('The speech host returned no audio.');

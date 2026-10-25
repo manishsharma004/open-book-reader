@@ -48,7 +48,7 @@ class CompleteBody(BaseModel):
 
 
 class SpeakBody(BaseModel):
-    vendor: Literal["openai", "kokoro", "elevenlabs"]
+    vendor: Literal["openai", "kokoro", "elevenlabs", "pocket"]
     baseUrl: str = Field(max_length=500)
     model: str = Field(default="", max_length=200)
     apiKey: str = Field(default="", max_length=500)
@@ -57,6 +57,7 @@ class SpeakBody(BaseModel):
     emotion: str = Field(default="neutral", max_length=40)
     instructions: str = Field(default="", max_length=8000)
     sampleBase64: str | None = Field(default=None, max_length=14_000_000)
+    sampleMime: str = Field(default="", max_length=80)
 
 
 class CloneBody(BaseModel):
@@ -195,6 +196,8 @@ def speak(body: SpeakBody, request: Request) -> dict[str, object]:
         return _speak_elevenlabs(body, origin)
     if body.vendor == "kokoro":
         return _speak_kokoro(body, origin)
+    if body.vendor == "pocket":
+        return _speak_pocket(body, origin)
     return _speak_openai(body, origin)
 
 
@@ -275,6 +278,76 @@ def _speak_kokoro(body: SpeakBody, origin: str) -> dict[str, object]:
     if response.status_code >= 400:
         raise vendor_error(response)
     return _audio_result(response.content, "audio/mpeg", None, delivery)
+
+
+def _sample_bytes(encoded: str) -> bytes:
+    try:
+        sample = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise HTTPException(400, "The voice sample is not valid base64.") from exc
+    if not sample:
+        raise HTTPException(400, "The voice sample is empty.")
+    if len(sample) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Voice samples are limited to 10 MB.")
+    return sample
+
+
+def _sample_suffix(sample: bytes, mime: str) -> str:
+    if sample.startswith(b"RIFF") and sample[8:12] == b"WAVE":
+        return ".wav"
+    if sample.startswith(b"fLaC"):
+        return ".flac"
+    if sample.startswith(b"OggS"):
+        return ".ogg"
+    if sample.startswith(b"ID3") or (len(sample) > 1 and sample[0] == 0xFF and sample[1] & 0xE0 == 0xE0):
+        return ".mp3"
+    cleaned = mime.split(";")[0].strip().lower()
+    if cleaned in {"audio/wav", "audio/x-wav", "audio/wave"}:
+        return ".wav"
+    if cleaned in {"audio/mpeg", "audio/mp3"}:
+        return ".mp3"
+    if cleaned == "audio/flac":
+        return ".flac"
+    if cleaned == "audio/ogg":
+        return ".ogg"
+    return ".wav"
+
+
+def _sample_type(mime: str) -> str:
+    cleaned = mime.split(";")[0].strip().lower()
+    if cleaned.startswith("audio/") and " " not in cleaned:
+        return cleaned
+    return "application/octet-stream"
+
+
+def _speak_pocket(body: SpeakBody, origin: str) -> dict[str, object]:
+    """POST the official Pocket form. A sample is voice_wav. A builtin name is voice_url."""
+    url = f"{origin}/tts"
+    form: dict[str, str] = {"text": body.text}
+    files = None
+    if body.sampleBase64:
+        sample = _sample_bytes(body.sampleBase64)
+        suffix = _sample_suffix(sample, body.sampleMime)
+        files = {"voice_wav": (f"sample{suffix}", sample, _sample_type(body.sampleMime))}
+        delivery = "Pocket TTS. The sample was sent as voice_wav. No emotion control and no word times."
+    else:
+        voice = body.voice.strip()
+        if voice and voice_id(voice):
+            form["voice_url"] = voice
+            delivery = f"Pocket TTS voice {voice}. No emotion control and no word times."
+        else:
+            delivery = "Pocket TTS default voice. No emotion control and no word times."
+    try:
+        with httpx.Client(timeout=90, follow_redirects=False) as client:
+            response = client.post(url, data=form, files=files)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    mime = response.headers.get("content-type", "audio/wav").split(";")[0].strip().lower()
+    if "json" in mime or not response.content:
+        raise HTTPException(502, "Pocket TTS returned no audio.")
+    return _audio_result(response.content, mime or "audio/wav", None, delivery)
 
 
 def _speak_elevenlabs(body: SpeakBody, origin: str) -> dict[str, object]:

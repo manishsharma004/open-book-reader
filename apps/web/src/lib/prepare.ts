@@ -79,7 +79,7 @@ export function cacheKey(index: number, settings: AppSettings) {
 			model: settings.tts.model,
 			voice: settings.tts.voice,
 			key: settings.tts.apiKey.length,
-			sample: settings.sendSample ? settings.cloneBlobId : null
+			sample: settings.tts.vendor === 'pocket' || settings.sendSample ? settings.cloneBlobId : null
 		}
 	});
 }
@@ -394,14 +394,23 @@ async function doPrepare(index: number, settings: AppSettings): Promise<Prepared
 			detail: `POST /v1/speak → ${settings.tts.vendor} ${hostOf(settings.tts.baseUrl)} model ${settings.tts.model || '(default)'} voice ${settings.tts.voice || '(default)'}`
 		});
 		try {
-			const sample = settings.sendSample ? await voiceSample(settings) : undefined;
+			const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+			const sample = useSample ? await voiceSample(settings) : undefined;
 			const sampleBase64 = sample ? await blobToBase64(sample) : null;
 			const dominant = clauses[0]?.emotion ?? 'neutral';
 			const spoken = clauses.map((clause) => clause.text).join(' ');
 			const instructions = clauses
 				.map((clause) => `${PROSODY[clause.emotion].instruction} Say: ${clause.text}`)
 				.join('\n');
-			const result = await speak(settings.tts, spoken, dominant, instructions, sampleBase64, settings.sendSample);
+			const result = await speak(
+				settings.tts,
+				spoken,
+				dominant,
+				instructions,
+				sampleBase64,
+				Boolean(sample),
+				sample?.type || null
+			);
 			audioUrl = URL.createObjectURL(result.blob);
 			timings = result.words ? alignTimings(extracted.words, result.words) : null;
 			logPipeline({
