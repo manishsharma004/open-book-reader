@@ -49,7 +49,7 @@ The page the reader sees is the book page. A text view of the same spans is avai
 
 | Level | Configured | What the reader gets |
 | --- | --- | --- |
-| 0 | Nothing | Local analysis, chapters from local signals, local metadata. Listening with the browser's built-in voice, word highlight where the browser reports word boundaries. No stored audio, no emotion, no summaries |
+| 0 | Nothing | Local analysis, chapters from local signals, local metadata. Listening with the browser's built-in voice and a word highlight that follows the voice. No stored audio, no emotion, no summaries |
 | 1 | Speech profile | Stored audio, seek, offline listening for prepared chapters, word highlight from engine timings or a timing profile. Transcript is the printed text with neutral emotion |
 | 2 | Text and speech profiles | The full design: emotion and punctuation transcript, summaries, people, pronunciation hints |
 
@@ -457,7 +457,7 @@ Timings, best first:
 
 ### 7.5 Highlight sync
 
-The audio element is the only clock. `currentTime` and the segment's word timings select the word. Rate, pause, and scrubbing act on that element. Word highlight is required when the segment has word timings. Sentence highlight is only for a coarse segment, or for the preview voice when the browser reports no word boundaries.
+The audio element is the clock when the page has stored audio. `currentTime` and the segment's word timings select the word. Rate, pause, and scrubbing act on that element. Pause leaves `currentTime` where it is, and Play continues from that sample. Word highlight is required when the segment has word timings. When it does not, the same per-word estimate used by the browser voice is spread across the clip, so one word is still marked. Sentence highlight remains the coarse fallback for a segment that has neither timings nor a word list.
 
 ```mermaid
 flowchart TD
@@ -496,7 +496,11 @@ At `currentTime = 1.80` the word **station** is highlighted and the whole senten
 
 ### 7.7 Browser voice (level 0)
 
-With no speech profile, the player uses `speechSynthesis` per span. This mode has a different clock: `boundary` events with `charIndex` select the word. Seeking is per sentence, not within a sentence. Audio cannot be captured or stored, so there is no offline listening. Some voices and platforms do not fire boundary events (notably Chrome on Android, and network voices on desktop Chrome); then the sentence is highlighted instead. The UI labels this mode as a preview voice.
+With no speech profile, the player uses `speechSynthesis` for the page, starting at the current word. Audio cannot be captured or stored, so there is no offline listening. The UI labels this mode as a preview voice.
+
+The highlight does not wait for a `boundary` event. Many voices, including Chrome on Linux and Android and some network voices, never send one. Each word gets a duration from its length, its trailing punctuation, and the speech rate. An animation frame moves the mark when that duration elapses. A `boundary` event with `charIndex`, when the engine does send one, snaps the clock to that word so the estimate cannot drift.
+
+Pause stops the voice and leaves the current word marked. Play speaks from that word through the rest of the page. The browser cannot freeze a sample mid-word, so the current word is spoken again from its start. Clicking a word starts at that word. A page change clears the position.
 
 The browser voice can still mark emotion. Each named emotion changes pitch, rate, and volume, and the player says that this is not model expression. A chosen emotion applies to the page. **Auto** asks the emotion model, or the VLLM profile when emotion analysis is off, for clause emotions. With no model, auto stays neutral.
 
@@ -687,7 +691,7 @@ These were open questions. They are decided.
 | 1 | The first upload is PDF only. EPUB waits on a pagination step that can give stable pages | [Upload](#61-upload) |
 | 2 | Play waits until the whole book passes the Ready gate | [When play becomes available](#65-when-play-becomes-available) |
 | 3 | The chapter heading is spoken once, at the start of the chapter. **Speak headings** defaults on. Running headers stay silent | [Page analysis](#62-page-analysis) |
-| 4 | Word highlight is the bar whenever a timing source exists. Sentence highlight is only the coarse and preview-voice fallback | [Highlight sync](#75-highlight-sync) |
+| 4 | One word is highlighted while the voice runs. Engine timings win. Otherwise the highlight follows a per-word estimate, and a browser boundary snaps it. Pause keeps that word; Play continues from it | [Highlight sync](#75-highlight-sync), [Browser voice](#77-browser-voice-level-0) |
 | 5 | One voice speaks at a time. The reader picks a browser voice or a vendor voice id. A sample can create an ElevenLabs voice. `speaker` is stored and does not select a voice | [Suggested stack](#12-suggested-stack), [Page buffer](#78-page-buffer) |
 | 6 | Prepared audio is kept up to 200 MB per book. Under pressure the previous, current, and next chapters are kept and older audio is dropped | [Persistence and eviction](#55-persistence-and-eviction) |
 | 7 | Uncertain chapter breaks are reviewed after Ready. The flag does not block play | [Chapter separation](#63-chapter-separation) |
@@ -723,6 +727,6 @@ With a short PDF we have rights to use:
 10. Editing a chapter boundary drops only utterances touching that boundary.
 11. The network log shows model calls going to the app server origin, not to vendor hosts.
 12. A book exported in one browser and imported in another plays from the same position.
-13. Level 0 plays a chapter with the browser voice and sentence or word highlight.
-14. With Kokoro, a paused `currentTime` highlights one word. Sentence highlight appears only for a coarse segment or a preview voice with no boundaries.
+13. Level 0 plays with the browser voice. The highlighted word advances while the voice runs, including when the browser sends no word boundaries. Pause leaves that word marked, and Play speaks from it.
+14. With Kokoro, pause keeps `currentTime` and the highlighted word. Play continues from that sample. A clip with no word times still marks one word by spreading the per-word estimate across the clip.
 15. Playback skips a table and shows **Table, not read**. The chapter heading is spoken once.

@@ -115,6 +115,7 @@ Shown when the book is Ready.
 ```
 
 - Current word filled, current sentence underlined. The underline is a non-color cue.
+- **Play** and **Pause** share one position on the page. Pause leaves the current word marked. Play continues from that word. With the browser voice the word is spoken again from its start. With stored audio, Play continues at the same sample. Clicking a word moves the position there.
 - The scrubber covers the current chapter. Prepared ranges are shaded on it; scrubbing into an unprepared range shows **Preparing** at that point.
 - Status line: seconds prepared ahead and the highlight quality (**Word highlight**, **Sentence highlight**, **Preview voice**). Word highlight is the normal case. Sentence highlight is labeled as reduced.
 - Crossing a table shows **Table, not read** on that region and the audio continues at the next spoken span.
@@ -156,7 +157,7 @@ Shown when the book is Ready.
 
 | Action | Control | Key |
 | --- | --- | --- |
-| Play or pause | ▶ | `Space` or `K` |
+| Play or pause. Pause keeps the position. Play continues from it | ▶ | `Space` or `K` |
 | Back or forward 15 s | ⟲15 / 15⟳ | `J` / `L` |
 | Previous or next sentence | | `←` / `→` |
 | Previous or next chapter | ⏮ / ⏭ | `Shift+←` / `Shift+→` |
