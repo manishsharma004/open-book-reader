@@ -4,6 +4,7 @@ import {
 	clipIndexForWord,
 	READY_TINT,
 	SPEECH_CHUNK_WORDS,
+	speechPace,
 	splitSpeechWords,
 	wordBackdrop
 } from '../src/lib/speech-clips.ts';
@@ -20,21 +21,39 @@ test('a page with no sentence marks is cut into 24-word clips', () => {
 	for (const span of spans) assert.ok(span.wordEnd - span.wordStart <= SPEECH_CHUNK_WORDS);
 });
 
-test('sentences pack together until the word cap', () => {
+test('sentences pack together until the pace', () => {
 	const words = 'Mara waited. The station clock had stopped. Noon passed. Then the train left the empty platform at last.'.split(
 		' '
 	);
 	const spans = splitSpeechWords(words);
 	assert.equal(spans.length, 1);
 	assert.equal(spans[0].wordEnd, words.length);
+	const brief = splitSpeechWords(words, 12);
+	assert.deepEqual(
+		brief.map((span) => span.wordEnd - span.wordStart),
+		[9, 9]
+	);
 });
 
-test('a long sentence breaks at a comma before the word cap', () => {
-	const words = Array.from({ length: 40 }, (_, index) => (index === 9 ? 'clause,' : `word${index}`));
+test('a long sentence stays whole past the pace and ignores commas', () => {
+	const words = Array.from({ length: 36 }, (_, index) => (index === 9 ? 'clause,' : index === 35 ? 'end.' : `word${index}`));
 	const spans = splitSpeechWords(words);
-	assert.equal(spans[0].wordEnd, 10);
-	assert.ok(spans.every((span) => span.wordEnd - span.wordStart <= SPEECH_CHUNK_WORDS));
-	assert.equal(spans.at(-1)?.wordEnd, 40);
+	assert.deepEqual(spans, [{ wordStart: 0, wordEnd: 36 }]);
+});
+
+test('a sentence longer than twice the pace is cut at the pace', () => {
+	const words = Array.from({ length: 70 }, (_, index) => (index === 69 ? 'end.' : `word${index}`));
+	const spans = splitSpeechWords(words, 24);
+	assert.ok(spans[0].wordEnd - spans[0].wordStart === SPEECH_CHUNK_WORDS);
+	assert.equal(spans.at(-1)?.wordEnd, 70);
+	assert.ok(spans.every((span) => span.wordEnd > span.wordStart));
+});
+
+test('pace snaps to a word step between 8 and 48', () => {
+	assert.equal(speechPace(undefined), 24);
+	assert.equal(speechPace(3), 8);
+	assert.equal(speechPace(25), 24);
+	assert.equal(speechPace(90), 48);
 });
 
 test('clips cover the whole page and none of them is the whole page', () => {

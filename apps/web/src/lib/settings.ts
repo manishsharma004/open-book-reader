@@ -1,4 +1,5 @@
 import { deleteBlob, getBlob, putBlob, readAppRecord, writeAppRecord } from '#lib/db.js';
+import { SPEECH_CHUNK_WORDS, speechPace } from '#lib/speech-clips.js';
 import { randomId } from '#lib/hash.js';
 import { applyPalette, applyTheme, readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
 
@@ -41,6 +42,7 @@ export type AppSettings = {
 	theme: ThemeMode;
 	palette: Palette;
 	lookahead: 2 | 3;
+	speechPace: number;
 	ocrLanguage: string;
 	voiceName: string;
 	emotion: EmotionChoice;
@@ -57,6 +59,7 @@ export function defaultSettings(): AppSettings {
 		theme: readTheme(),
 		palette: readPalette(),
 		lookahead: 2,
+		speechPace: SPEECH_CHUNK_WORDS,
 		ocrLanguage: 'eng',
 		voiceName: '',
 		emotion: 'auto',
@@ -127,6 +130,7 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 		theme: theme === 'day' || theme === 'night' || theme === 'system' ? theme : base.theme,
 		palette: palette === 'lamp' || palette === 'ink' ? palette : base.palette,
 		lookahead,
+		speechPace: speechPace(raw.speechPace),
 		ocrLanguage: typeof raw.ocrLanguage === 'string' && raw.ocrLanguage ? raw.ocrLanguage : 'eng',
 		voiceName: typeof raw.voiceName === 'string' ? raw.voiceName : '',
 		emotion: emotion === 'auto' || (EMOTIONS as readonly string[]).includes(String(emotion)) ? (emotion as EmotionChoice) : 'auto',
@@ -207,6 +211,7 @@ export async function loadStoredSettings(): Promise<AppSettings> {
 export async function storeSettings(settings: AppSettings) {
 	const plain = JSON.parse(JSON.stringify(settings)) as AppSettings;
 	plain.lookahead = Number(plain.lookahead) === 3 ? 3 : 2;
+	plain.speechPace = speechPace(plain.speechPace);
 	applyTheme(plain.theme);
 	applyPalette(plain.palette);
 	await writeAppRecord({ id: 'app', ...plain });

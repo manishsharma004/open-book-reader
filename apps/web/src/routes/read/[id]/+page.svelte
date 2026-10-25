@@ -19,7 +19,7 @@
 	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
-	import { clipIndexForWord, wordBackdrop } from '#lib/speech-clips.js';
+	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
@@ -743,6 +743,12 @@
 		void playFrom(resumeWord);
 	}
 
+	async function onPace(event: Event) {
+		if (!settings) return;
+		settings.speechPace = speechPace((event.currentTarget as HTMLInputElement).value);
+		await commitSettings();
+	}
+
 	async function onEmotion(event: Event) {
 		if (!settings) return;
 		settings.emotion = (event.currentTarget as HTMLSelectElement).value as EmotionChoice;
@@ -924,6 +930,21 @@
 			<div class="flex min-w-36 flex-1 items-center gap-2">
 				<span class="text-muted-foreground text-xs tabular-nums">{rate.toFixed(1)}×</span>
 				<Slider type="single" bind:value={rate} min={0.5} max={2} step={0.1} />
+			</div>
+			<div class="flex min-w-36 items-center gap-2" data-pace>
+				<label class="text-muted-foreground text-xs tabular-nums" for="speech-pace">Pace {settings?.speechPace ?? 24}</label>
+				<input
+					id="speech-pace"
+					class="accent-primary w-28"
+					type="range"
+					min="8"
+					max="48"
+					step="4"
+					value={settings?.speechPace ?? 24}
+					aria-label="Pace in words"
+					disabled={!settings}
+					onchange={onPace}
+				/>
 			</div>
 			{#if settings}
 				<select class={field} value={settings.emotion} onchange={onEmotion} aria-label="Emotion">

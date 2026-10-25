@@ -8,7 +8,7 @@ import {
 	type AppSettings,
 	type EmotionName
 } from '#lib/settings.js';
-import { clipIndexForWord, splitSpeechWords } from '#lib/speech-clips.js';
+import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
 import type { PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -104,7 +104,8 @@ export function cacheKey(index: number, settings: AppSettings) {
 			voice: settings.tts.voice,
 			key: settings.tts.apiKey.length,
 			sample: settings.tts.vendor === 'pocket' || settings.sendSample ? settings.cloneBlobId : null
-		}
+		},
+		pace: speechPace(settings.speechPace)
 	});
 }
 
@@ -332,8 +333,8 @@ function emotionAt(clauses: Clause[], wordIndex: number): EmotionName {
 	return clauses.find((clause) => wordIndex >= clause.wordStart && wordIndex < clause.wordEnd)?.emotion ?? 'neutral';
 }
 
-function makeClips(words: PageWord[], clauses: Clause[]): SpeechClip[] {
-	return splitSpeechWords(words.map((word) => word.text)).map((span) => ({
+function makeClips(words: PageWord[], clauses: Clause[], pace: number): SpeechClip[] {
+	return splitSpeechWords(words.map((word) => word.text), pace).map((span) => ({
 		wordStart: span.wordStart,
 		wordEnd: span.wordEnd,
 		text: words
@@ -524,8 +525,9 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean, si
 		});
 	}
 
+	const pace = speechPace(settings.speechPace);
 	const clauses = oneClause(extracted.words, extracted.text, settings.emotion === 'auto' ? 'neutral' : canonEmotion(settings.emotion));
-	const clips = extracted.text ? makeClips(extracted.words, clauses) : [];
+	const clips = extracted.text ? makeClips(extracted.words, clauses, pace) : [];
 	let note: string | null = null;
 	if (settings.tts.vendor === 'browser') {
 		logPipeline({
@@ -543,7 +545,7 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean, si
 			stage: 'tts',
 			status: 'start',
 			ms: null,
-			detail: `${clips.length} clips of at most 24 words. The open page is spoken first, then the rest of the page buffer.`
+			detail: `${clips.length} clips at a pace of ${pace} words, split on full stops. The open page is spoken first, then the rest of the page buffer.`
 		});
 	}
 
