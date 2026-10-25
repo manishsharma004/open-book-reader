@@ -240,7 +240,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 8000 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. Choosing Pocket points this form at that service. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. Choosing Pocket points this form at that service. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -267,7 +267,7 @@
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="tts-url">Base URL</Label>
-					<Input id="tts-url" bind:value={settings.tts.baseUrl} placeholder="http://127.0.0.1:8000" />
+					<Input id="tts-url" bind:value={settings.tts.baseUrl} placeholder="http://127.0.0.1:7508" />
 				</div>
 				<div class="grid gap-1.5 sm:grid-cols-2">
 					<div class="grid gap-1.5">

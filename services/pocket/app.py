@@ -6,6 +6,8 @@ import this module.
 
     POCKET_LANGUAGE=english_18m_refl_2026-10 python services/pocket/app.py
 
+The process listens on port 7508. This container publishes services on 7500–7510.
+
 Weights are gated. A Hugging Face token (`HF_TOKEN` or `huggingface-cli login`)
 is required the first time the model downloads. `POCKET_LANGUAGE` is read
 when the process starts. A request cannot switch the model.
@@ -172,7 +174,7 @@ def main() -> None:
 
     language = os.environ.get("POCKET_LANGUAGE", DEFAULT_LANGUAGE).strip() or DEFAULT_LANGUAGE
     host = os.environ.get("POCKET_HOST", "0.0.0.0").strip() or "0.0.0.0"
-    port = int(os.environ.get("POCKET_PORT", "8000"))
+    port = int(os.environ.get("POCKET_PORT", "7508"))
     quantize = os.environ.get("POCKET_QUANTIZE", "") == "1"
     if not logger.handlers:
         logging.basicConfig(level=logging.INFO)

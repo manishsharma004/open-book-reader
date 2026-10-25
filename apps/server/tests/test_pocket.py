@@ -1,4 +1,4 @@
-"""Pocket speech stays on port 8000 and the sample is a form file, not a URL."""
+"""Pocket speech stays on port 7508 and the sample is a form file, not a URL."""
 
 import base64
 import importlib.util
@@ -53,7 +53,7 @@ def test_speak_sends_the_sample_as_voice_wav(monkeypatch):
         "/v1/speak",
         json={
             "vendor": "pocket",
-            "baseUrl": "http://127.0.0.1:8000",
+            "baseUrl": "http://127.0.0.1:7508",
             "model": "english_18m_refl_2026-10",
             "voice": "alba",
             "text": "Hello from the book.",
@@ -66,7 +66,7 @@ def test_speak_sends_the_sample_as_voice_wav(monkeypatch):
     assert body["mime"] == "audio/wav"
     assert body["words"] is None
     assert "voice_wav" in body["delivery"]
-    assert calls.posts[0]["url"] == "http://127.0.0.1:8000/tts"
+    assert calls.posts[0]["url"] == "http://127.0.0.1:7508/tts"
     data = calls.posts[0]["data"]
     files = calls.posts[0]["files"]
     assert data == {"text": "Hello from the book."}
@@ -84,13 +84,13 @@ def test_speak_sends_a_builtin_voice_name(monkeypatch):
         "/v1/speak",
         json={
             "vendor": "pocket",
-            "baseUrl": "http://127.0.0.1:8000",
+            "baseUrl": "http://127.0.0.1:7508",
             "voice": "alba",
             "text": "Hello.",
         },
     )
     assert response.status_code == 200
-    assert calls.posts[0]["url"] == "http://127.0.0.1:8000/tts"
+    assert calls.posts[0]["url"] == "http://127.0.0.1:7508/tts"
     assert calls.posts[0]["data"] == {"text": "Hello.", "voice_url": "alba"}
     assert calls.posts[0]["files"] is None
 
@@ -104,7 +104,7 @@ def test_speak_does_not_forward_a_voice_url(monkeypatch):
         "/v1/speak",
         json={
             "vendor": "pocket",
-            "baseUrl": "http://127.0.0.1:8000",
+            "baseUrl": "http://127.0.0.1:7508",
             "voice": "https://example.com/voice.wav",
             "text": "Hello.",
         },
@@ -114,13 +114,13 @@ def test_speak_does_not_forward_a_voice_url(monkeypatch):
         "/v1/speak",
         json={
             "vendor": "pocket",
-            "baseUrl": "http://10.0.0.8:8000",
+            "baseUrl": "http://10.0.0.8:7508",
             "voice": "alba",
             "text": "Hello.",
         },
     )
     assert refused.status_code == 400
-    assert "8000" in refused.json()["detail"]
+    assert "port 7508" in refused.json()["detail"]
 
 
 def test_speak_rejects_a_huge_sample(monkeypatch):
@@ -133,7 +133,7 @@ def test_speak_rejects_a_huge_sample(monkeypatch):
         "/v1/speak",
         json={
             "vendor": "pocket",
-            "baseUrl": "http://127.0.0.1:8000",
+            "baseUrl": "http://127.0.0.1:7508",
             "text": "Hello.",
             "sampleBase64": base64.b64encode(raw).decode("ascii"),
         },
