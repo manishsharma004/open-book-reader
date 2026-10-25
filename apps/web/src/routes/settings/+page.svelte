@@ -229,7 +229,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. The server calls Kokoro on port 8880 at 127.0.0.1, localhost, or 192.168.29.45, plus api.openai.com and api.elevenlabs.io. Another speech host has to be listed in SPEECH_ALLOW. ElevenLabs can build a voice from a sample.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. For a cloned voice on an 8GB GPU, run Kyutai Pocket TTS english_18m on the CPU and keep the sample below as its reference. That leaves the GPU for the text model. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -266,7 +266,7 @@
 				<div class="border-border grid gap-3 border-t pt-3">
 					<h3 class="text-sm font-medium">Voice sample</h3>
 					<p class="text-muted-foreground text-xs">
-						The sample is stored in this browser. ElevenLabs creates a voice id from it. Other hosts can receive it as reference audio when the box below is on.
+						The sample stays in this browser. It is the reference clip for Pocket TTS. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
 					<Input type="file" accept="audio/*" onchange={onSample} />
 					{#if settings.cloneFileName}
@@ -285,7 +285,7 @@
 					{/if}
 					<label class="flex items-center gap-2 text-sm">
 						<input type="checkbox" bind:checked={settings.sendSample} />
-						Attach the sample on Kokoro and OpenAI-compatible speech requests
+						Send the sample as reference audio when the host accepts it
 					</label>
 					<Button variant="outline" size="sm" class="w-fit" onclick={createClone} disabled={settings.tts.vendor !== 'elevenlabs'}>
 						Create ElevenLabs voice

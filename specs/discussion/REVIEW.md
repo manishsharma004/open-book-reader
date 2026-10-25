@@ -82,6 +82,7 @@ Summary of the most important changes:
 | U9 | Low | When play waited, the reader was not told why or offered anything | **Preparing** with reason; after a delay, offer the preview voice or plain reading | `DESIGN.md` §7.2, `UX.md` §5 |
 | U10 | Low | A long book could only be reached by stepping or dragging the page slider | **Go to page** accepts a page number, clamps it to the book, and opens that page. `G` focuses the field | `UX.md` §3.6, §4 |
 | U11 | Low | The page slider did not say which page it was on, and the page could not be turned with a swipe | The slider shows the current page and the total. A horizontal swipe slides the page off and brings the next one in. Reduced motion skips the slide | `UX.md` §3.6, §4, §6 |
+| U12 | Medium | Voice cloning was specified as an ElevenLabs voice id. That host is not in use, and an 8GB GPU cannot hold a text model and a 1.7B clone model | Kokoro stays the preset voice. The clone is Kyutai Pocket TTS `english_18m_refl_2026-10` on one CPU thread. The sample stays in the browser. The proxy does not call Pocket yet | `DESIGN.md` §12, §14, `PROVIDERS.md` §6 |
 
 ## 4. Feature completion
 
@@ -148,7 +149,7 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D2 | Whole-book Ready gate stays |
 | D3 | Chapter headings spoken once; **Speak headings** defaults on |
 | D4 | One word is highlighted while the voice runs. Timings win; otherwise a per-word estimate is used, and pause resumes from that word |
-| D5 | One voice at a time. The reader picks it. A sample can create an ElevenLabs voice. `speaker` does not select a voice |
+| D5 | One voice at a time. Kokoro is the preset voice. A clone on an 8GB machine is Pocket TTS `english_18m_refl_2026-10` on the CPU. ElevenLabs is not the cloning path. `speaker` does not select a voice |
 | D6 | 200 MB of prepared audio per book; keep the previous, current, and next chapter under pressure |
 | D7 | Chapter review is after Ready and does not block play |
 | D8 | Tables are not spoken; the player shows **Table, not read** |
