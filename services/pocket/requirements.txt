@@ -1,0 +1,5 @@
+# Sidecar for voice cloning. Install this in its own environment.
+# The app server must not import pocket-tts. python-multipart is also in the
+# app server requirements so the form contract can be tested there.
+pocket-tts
+python-multipart>=0.0.20

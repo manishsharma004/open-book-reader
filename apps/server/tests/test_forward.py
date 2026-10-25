@@ -103,12 +103,22 @@ def test_speech_allows_known_hosts_only():
     assert approved_speech_base("http://192.168.29.45:8880", "kokoro") == "http://192.168.29.45:8880"
     assert approved_speech_base("https://api.openai.com/v1", "openai") == "https://api.openai.com:443"
     assert approved_speech_base("https://api.elevenlabs.io", "elevenlabs") == "https://api.elevenlabs.io:443"
+    assert approved_speech_base("http://127.0.0.1:8000", "pocket") == "http://127.0.0.1:8000"
+    assert approved_speech_base("http://localhost:8000", "pocket") == "http://localhost:8000"
+    assert approved_speech_base("http://[::1]:8000", "pocket") == "http://[::1]:8000"
+    assert approved_speech_base("http://192.168.29.45:8000", "pocket") == "http://192.168.29.45:8000"
     for url, vendor in [
         ("http://192.168.1.1:8880/v1", "kokoro"),
+        ("http://192.168.1.1:8000", "pocket"),
+        ("http://127.0.0.1:8001", "pocket"),
+        ("http://127.0.0.1:8880", "pocket"),
+        ("http://127.0.0.1:8000", "kokoro"),
+        ("https://127.0.0.1:8000", "pocket"),
         ("http://192.168.29.45:5173/v1", "openai"),
         ("http://127.0.0.1:11434/v1", "kokoro"),
         ("http://127.0.0.1:8880/v1", "openai"),
         ("https://api.openai.com/v1", "kokoro"),
+        ("https://api.openai.com/v1", "pocket"),
         ("http://api.elevenlabs.io/v1", "elevenlabs"),
         ("https://example.com/v1", "openai"),
     ]:
