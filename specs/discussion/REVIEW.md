@@ -80,6 +80,7 @@ Summary of the most important changes:
 | U7 | Medium | Metadata looked authoritative even when inferred | **Found in the book** and **Inferred** badges, editable fields marked `reader` | `DESIGN.md` §6.4, `UX.md` §3.5 |
 | U8 | Medium | Uncertain chapter breaks were warnings with nowhere to fix them | Chapter review screen: move, merge, split, rename, front and back matter, with undo | `UX.md` §3.7 |
 | U9 | Low | When play waited, the reader was not told why or offered anything | **Preparing** with reason; after a delay, offer the preview voice or plain reading | `DESIGN.md` §7.2, `UX.md` §5 |
+| U10 | Low | A long book could only be reached by stepping or dragging the page slider | **Go to page** accepts a page number, clamps it to the book, and opens that page. `G` focuses the field | `UX.md` §3.6, §4 |
 
 ## 4. Feature completion
 

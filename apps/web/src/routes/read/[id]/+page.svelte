@@ -27,6 +27,8 @@
 	let voiceNote = $state('');
 	let pageIndex = $state(0);
 	let scrub = $state<number | null>(null);
+	let pageDraft = $state('1');
+	let editingPage = $state(false);
 	let words = $state<PageWord[]>([]);
 	let prepared = $state<PreparedPage | null>(null);
 	let activeWord = $state(-1);
@@ -41,6 +43,7 @@
 
 	let stage = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
+	let pageField = $state<HTMLInputElement | null>(null);
 	let audio = $state<HTMLAudioElement | null>(null);
 	let pdf: PDFDocumentProxy | null = null;
 	let viewGen = 0;
@@ -59,6 +62,11 @@
 	const settings = $derived(settingsState.current);
 	const shownPage = $derived(scrub ?? pageIndex);
 	const field = 'border-input bg-background h-8 rounded-lg border px-2 text-sm';
+
+	$effect(() => {
+		const display = String(shownPage + 1);
+		if (!editingPage) pageDraft = display;
+	});
 
 	const bufferLabel = $derived.by(() => {
 		bufferTick;
@@ -256,6 +264,34 @@
 		if (!book) return;
 		scrub = null;
 		pageIndex = Math.min(book.pageCount - 1, Math.max(0, next));
+	}
+
+	function goToPage(event?: Event) {
+		event?.preventDefault();
+		if (!book) return;
+		const parsed = Number.parseInt(String(pageDraft ?? '').trim(), 10);
+		editingPage = false;
+		if (!Number.isInteger(parsed)) {
+			pageDraft = String(pageIndex + 1);
+			return;
+		}
+		const target = Math.min(book.pageCount, Math.max(1, parsed));
+		pageDraft = String(target);
+		jump(target - 1);
+	}
+
+	function onReaderKey(event: KeyboardEvent) {
+		if (event.key !== 'g' && event.key !== 'G') return;
+		if (event.metaKey || event.ctrlKey || event.altKey) return;
+		const target = event.target;
+		if (target instanceof HTMLElement) {
+			const tag = target.tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+		}
+		event.preventDefault();
+		editingPage = true;
+		pageField?.focus();
+		pageField?.select();
 	}
 
 	function wordAtChar(list: PageWord[], charIndex: number) {
@@ -512,11 +548,13 @@
 	<title>{book?.title ?? 'Reader'}</title>
 </svelte:head>
 
+<svelte:window onkeydown={onReaderKey} />
+
 <div class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href="/" variant="ghost" size="sm">Library</Button>
 		<p class="min-w-0 flex-1 truncate text-sm font-medium">{book?.title ?? 'Opening…'}</p>
-		<span class="text-muted-foreground text-sm tabular-nums">
+		<span class="text-muted-foreground text-sm tabular-nums" data-current-page={book ? shownPage + 1 : ''}>
 			{book ? `${shownPage + 1} / ${book.pageCount}` : ''}
 		</span>
 		<select
@@ -593,6 +631,27 @@
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex + 1)} disabled={!book || pageIndex >= book.pageCount - 1}>
 				Next
 			</Button>
+			<form class="flex items-center gap-2" onsubmit={goToPage}>
+				<label class="text-muted-foreground text-xs" for="go-to-page">Go to page</label>
+				<input
+					id="go-to-page"
+					bind:this={pageField}
+					class="{field} w-20 tabular-nums"
+					type="number"
+					inputmode="numeric"
+					min="1"
+					max={book?.pageCount ?? 1}
+					bind:value={pageDraft}
+					disabled={!book}
+					onfocus={() => {
+						editingPage = true;
+						pageField?.select();
+					}}
+					oninput={() => (editingPage = true)}
+					onblur={() => goToPage()}
+				/>
+				<Button type="submit" variant="outline" size="sm" disabled={!book}>Go</Button>
+			</form>
 			{#if book && book.pageCount > 1}
 				<input
 					class="accent-primary w-40"
