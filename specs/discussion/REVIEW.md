@@ -149,7 +149,7 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D2 | Whole-book Ready gate stays |
 | D3 | Chapter headings spoken once; **Speak headings** defaults on |
 | D4 | One word is highlighted while the voice runs. Timings win; otherwise a per-word estimate is used, and pause resumes from that word |
-| D5 | One voice at a time. Kokoro is the preset voice. A clone on an 8GB machine is Pocket TTS `english_18m_refl_2026-10` on the CPU. The proxy sends the sample as `voice_wav` to port 7508. ElevenLabs is not the cloning path. `speaker` does not select a voice |
+| D5 | One voice at a time. Kokoro is the preset voice. A clone on an 8GB machine is Pocket TTS `english_18m_refl_2026-10`. This container uses the RX 5500M when that card has at least 1 GB free, and the CPU otherwise. The proxy sends the sample as `voice_wav` to port 7508. ElevenLabs is not the cloning path. `speaker` does not select a voice |
 | D6 | 200 MB of prepared audio per book; keep the previous, current, and next chapter under pressure |
 | D7 | Chapter review is after Ready and does not block play |
 | D8 | Tables are not spoken; the player shows **Table, not read** |
