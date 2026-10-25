@@ -44,7 +44,7 @@ The page the reader sees is the book page. A text view of the same spans is avai
 
 - A current desktop browser: Chromium, Firefox, or Safari. Mobile browsers work for listening with the limits in [Persistence and eviction](#55-persistence-and-eviction) and `UX.md`.
 - The app server: one process that serves the web app and the stateless proxy from the same origin, on a machine that can reach the reader's model hosts. `PROVIDERS.md` explains why the proxy and the app should share an origin.
-- The app opened from `localhost`, or over HTTPS from other devices. Service workers, Web Locks, and `crypto.subtle` need a secure context, and plain `http://192.168.x.x` is not one.
+- The app opened from `localhost`, or over HTTPS from other devices. Service workers and Web Locks need a secure context, and plain `http://192.168.x.x` is not one. Adding a PDF still works there: the duplicate hash and new ids do not use `crypto.subtle` or `crypto.randomUUID`.
 - Optionally, a text model and a speech model. The product degrades instead of stopping when either is missing.
 
 | Level | Configured | What the reader gets |
@@ -272,7 +272,7 @@ Playback is session state, not a version state. A version stays Ready while it i
 
 ### 6.1 Upload
 
-The browser stores the `File` in `blobs`, records name, size, media type, and SHA-256, and creates the page tasks. Nothing calls the proxy.
+The browser stores the `File` in `blobs`, records name, size, media type, and SHA-256, and creates the page tasks. Nothing calls the proxy. On a secure page the hash uses `crypto.subtle`. On a phone opened at `http://192.168.x.x`, where `crypto.subtle` is missing, the same SHA-256 runs in the page, and ids come from `crypto.getRandomValues`.
 
 First format: PDF, text-layer and scanned. EPUB reflows, so it needs a fixed pagination before highlights have stable pages; it is a later extractor behind the same interface.
 
