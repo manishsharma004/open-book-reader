@@ -5,8 +5,8 @@
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
-	import { EMOTIONS, applyTtsVendorDefaults, clearVoiceSample, saveVoiceSample, voiceSample, type TtsVendor } from '#lib/settings.js';
-	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
+	import { EMOTIONS, applyTtsVendorDefaults, saveVoiceSample, voiceSample, type TtsVendor } from '#lib/settings.js';
+	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import type { Palette } from '#lib/theme.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
 
@@ -19,6 +19,7 @@
 	let emotionResult = $state('');
 	let speechResult = $state('');
 	let cloneResult = $state('');
+	let sampleInput = $state<HTMLInputElement | null>(null);
 
 	const field = 'border-input bg-background h-8 w-full rounded-lg border px-2.5 text-sm';
 	const settings = $derived(settingsState.current);
@@ -101,6 +102,12 @@
 		await saveVoiceSample(settings, file, file.name);
 		await commitSettings();
 		cloneResult = `Saved ${file.name} in this browser.`;
+	}
+
+	async function removeSample() {
+		await removeVoiceSample();
+		if (sampleInput) sampleInput.value = '';
+		cloneResult = 'Sample removed. Later speech uses the voice id.';
 	}
 
 	async function createClone() {
@@ -300,20 +307,12 @@
 					<p class="text-muted-foreground text-xs">
 						The sample stays in this browser. Pocket TTS receives it as the reference clip on each request. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
-					<Input type="file" accept="audio/*" onchange={onSample} />
-					{#if settings.cloneFileName}
-						<p class="text-sm">Saved sample: {settings.cloneFileName}</p>
-						<Button
-							variant="ghost"
-							size="sm"
-							class="w-fit"
-							onclick={async () => {
-								await clearVoiceSample(settings);
-								cloneResult = 'Sample removed.';
-							}}
-						>
-							Remove sample
-						</Button>
+					<Input type="file" accept="audio/*" bind:ref={sampleInput} onchange={onSample} />
+					{#if settings.cloneBlobId || settings.cloneFileName}
+						<div class="flex flex-wrap items-center gap-2" data-voice-sample>
+							<p class="text-sm">Saved sample: {settings.cloneFileName || 'audio in this browser'}</p>
+							<Button id="remove-sample" variant="destructive" size="sm" onclick={removeSample}>Remove sample</Button>
+						</div>
 					{/if}
 					<label class="flex items-center gap-2 text-sm">
 						<input type="checkbox" bind:checked={settings.sendSample} />

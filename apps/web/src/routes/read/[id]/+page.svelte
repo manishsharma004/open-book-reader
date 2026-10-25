@@ -17,7 +17,7 @@
 		type PreparedPage,
 		type SpeechClip
 	} from '#lib/prepare.js';
-	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
+	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
 	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
@@ -814,6 +814,11 @@
 		void playFrom(resumeWord);
 	}
 
+	async function removeSample() {
+		await removeVoiceSample();
+		voiceNote = 'Sample removed. Later speech uses the voice id.';
+	}
+
 	async function onPace(event: Event) {
 		if (!settings) return;
 		settings.speechPace = speechPace((event.currentTarget as HTMLInputElement).value);
@@ -1037,6 +1042,12 @@
 					</select>
 				{:else}
 					<input class="{field} w-36" value={settings.tts.voice} aria-label="Voice id" onchange={onVendorVoice} />
+				{/if}
+				{#if settings.cloneBlobId || settings.cloneFileName}
+					<span class="text-muted-foreground max-w-40 truncate text-xs" data-voice-sample>
+						Sample {settings.cloneFileName || 'saved'}
+					</span>
+					<Button id="remove-sample" variant="destructive" size="sm" onclick={removeSample}>Remove sample</Button>
 				{/if}
 			{/if}
 			<p class="text-muted-foreground text-xs">
