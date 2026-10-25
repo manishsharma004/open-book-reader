@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 OLLAMA_PORT = 11434
+LLM_PORT = 5173
+LLM_LAN_HOST = "127.0.0.1"
 KOKORO_PORT = 8880
 OLLAMA_CLOUD = "ollama.com"
 OPENAI_HOST = "api.openai.com"
@@ -57,12 +59,17 @@ def approved_completion_base(url: str) -> str:
         )
     if _is_local_loopback(target) and target.port == OLLAMA_PORT and target.scheme == "http":
         return target.origin
+    if _builtin_llm(target):
+        if not _is_local_loopback(target):
+            _reject_blocked_resolution(target)
+        return target.origin
     if _allow_hit(target, "OLLAMA_ALLOW", OLLAMA_PORT):
         _reject_blocked_resolution(target)
         return target.origin
     raise _refused(
         "Completion is only forwarded to Ollama on this machine at port 11434 "
-        f"(http://127.0.0.1:{OLLAMA_PORT}/v1), to https://ollama.com, or to a host "
+        f"(http://127.0.0.1:{OLLAMA_PORT}/v1), to an LLM on port {LLM_PORT} at "
+        f"127.0.0.1, localhost, or {LLM_LAN_HOST}, to https://ollama.com, or to a host "
         "listed in OLLAMA_ALLOW. "
         f"Refused {target.scheme}://{_display(target.host, target.port)}."
     )
@@ -74,9 +81,9 @@ def approved_speech_base(url: str, vendor: str) -> str:
         _reject_blocked_resolution(target)
         return target.origin
     raise _refused(
-        "Speech is only forwarded to Kokoro on this machine at port 8880, "
-        "to https://api.openai.com, to https://api.elevenlabs.io, or to a host:port "
-        "listed in SPEECH_ALLOW. "
+        "Speech is only forwarded to Kokoro on port 8880 at 127.0.0.1, localhost, "
+        f"or {LLM_LAN_HOST}, to https://api.openai.com, to https://api.elevenlabs.io, "
+        "or to a host:port listed in SPEECH_ALLOW. "
         f"Refused {target.scheme}://{_display(target.host, target.port)}."
     )
 
@@ -88,9 +95,21 @@ def voice_id(value: str) -> str:
     return cleaned
 
 
+def _builtin_llm(target: Target) -> bool:
+    if target.scheme != "http" or target.port != LLM_PORT:
+        return False
+    if target.host == LLM_LAN_HOST:
+        return True
+    return _is_local_loopback(target)
+
+
 def _builtin_speech(target: Target, vendor: str) -> bool:
     if vendor == "kokoro":
-        return _is_local_loopback(target) and target.port == KOKORO_PORT and target.scheme == "http"
+        return (
+            target.scheme == "http"
+            and target.port == KOKORO_PORT
+            and (target.host == LLM_LAN_HOST or _is_local_loopback(target))
+        )
     if vendor == "openai":
         return target.scheme == "https" and target.host == OPENAI_HOST and target.port == 443
     if vendor == "elevenlabs":

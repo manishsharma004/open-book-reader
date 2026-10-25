@@ -2,22 +2,41 @@
 
 import base64
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from open_book.forward import approved_completion_base, approved_speech_base, voice_id
+from open_book.log import logger, note_vendor, observe_v1, public_text
 
 BUILD = Path(__file__).resolve().parents[2] / "web" / "build"
 MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
-app = FastAPI(title="Open Book Reader")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("server version=0.1.0 ffmpeg=%s", shutil.which("ffmpeg") is not None)
+    yield
+
+
+app = FastAPI(title="Open Book Reader", lifespan=lifespan)
+app.middleware("http")(observe_v1)
+
+
+@app.exception_handler(Exception)
+async def unhandled(request: Request, exc: Exception) -> Response:
+    if isinstance(exc, (HTTPException, StarletteHTTPException)):
+        raise exc
+    logger.exception("proxy crash method=%s route=%s", request.method, request.url.path)
+    raise exc
 
 
 class CompleteBody(BaseModel):
@@ -67,7 +86,8 @@ def vendor_error(response: httpx.Response) -> HTTPException:
 
 
 @app.get("/v1/health")
-def health() -> dict[str, object]:
+def health(request: Request) -> dict[str, object]:
+    note_vendor(request, "-")
     return {
         "version": "0.1.0",
         "ffmpeg": shutil.which("ffmpeg") is not None,
@@ -76,7 +96,8 @@ def health() -> dict[str, object]:
 
 
 @app.post("/v1/complete")
-def complete(body: CompleteBody) -> dict[str, str]:
+def complete(body: CompleteBody, request: Request) -> dict[str, str]:
+    note_vendor(request, "ollama")
     url = openai_url(approved_completion_base(body.baseUrl), "chat/completions")
     payload = {
         "model": body.model,
@@ -167,7 +188,8 @@ def _audio_result(content: bytes, mime: str, words: list[dict[str, object]] | No
 
 
 @app.post("/v1/speak")
-def speak(body: SpeakBody) -> dict[str, object]:
+def speak(body: SpeakBody, request: Request) -> dict[str, object]:
+    note_vendor(request, body.vendor)
     origin = approved_speech_base(body.baseUrl, body.vendor)
     if body.vendor == "elevenlabs":
         return _speak_elevenlabs(body, origin)
@@ -287,8 +309,20 @@ def _speak_elevenlabs(body: SpeakBody, origin: str) -> dict[str, object]:
     return _audio_result(base64.b64decode(audio), "audio/mpeg", _words_from_alignment(data), delivery)
 
 
+class ClientLogBody(BaseModel):
+    route: str = Field(max_length=200)
+    message: str = Field(max_length=300)
+
+
+@app.post("/v1/log", status_code=204)
+def client_log(body: ClientLogBody) -> Response:
+    logger.info("client route=%s message=%s", public_text(body.route, 200), public_text(body.message, 300))
+    return Response(status_code=204)
+
+
 @app.post("/v1/voices/clone")
-def clone_voice(body: CloneBody) -> dict[str, str]:
+def clone_voice(body: CloneBody, request: Request) -> dict[str, str]:
+    note_vendor(request, body.vendor)
     if body.vendor != "elevenlabs":
         raise HTTPException(
             400,
