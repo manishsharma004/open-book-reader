@@ -1,6 +1,9 @@
 # Open Book Reader — design discussion
 
-Status: discussion. This file records the product behavior, the processing and playback design, and a **suggested** stack. Nothing here is an implementation commitment. The stack in [Suggested stack](#11-suggested-stack) is a proposal to react to. Model vendors stay replaceable behind the interfaces in that section.
+Status: discussion. This file records the product behavior, the processing and playback design, and a **suggested** stack. Library and model choices are a proposal. Two architecture rules are constraints:
+
+- The browser is the system of record. Book bytes, page and word geometry, chapters, spans, metadata, embeddings, transcripts, audio, playback position, and task state live in IndexedDB. Blob values hold the file and audio bytes.
+- The backend that runs transcription, analysis, and completion is stateless. A request carries everything that call needs. The response is the whole result. The server stores none of the book.
 
 Discussion thread: https://github.com/manishsharma004/open-book-reader/issues/1
 
@@ -8,143 +11,272 @@ The original request, and where this document answers it:
 
 | Request | Where it is specified |
 | --- | --- |
-| User uploads a book | [Upload](#51-upload) |
-| Analyse the pages | [Page analysis](#52-page-analysis) |
-| Separate the chapters | [Chapter separation](#53-chapter-separation) |
-| Analyse the text and create full metadata | [Text analysis and metadata](#54-text-analysis-and-metadata) |
-| Audio reading starts only after processing is done | [When play becomes available](#55-when-play-becomes-available) |
-| A language model analyses the book in realtime | [Realtime preparation](#62-realtime-preparation) |
-| Build transcription text for speech, with punctuation and emotion | [Speech transcript](#63-speech-transcript) |
-| A speech model reads that transcription | [Speech synthesis](#64-speech-synthesis) |
-| Page text highlights in sync with the audio clock | [Highlight sync](#65-highlight-sync) |
+| User uploads a book | [Upload](#61-upload) |
+| Analyse the pages | [Page analysis](#62-page-analysis) |
+| Separate the chapters | [Chapter separation](#63-chapter-separation) |
+| Analyse the text and create full metadata | [Text analysis and metadata](#64-text-analysis-and-metadata) |
+| Audio reading starts only after processing is done | [When play becomes available](#65-when-play-becomes-available) |
+| A language model analyses the book in realtime | [Realtime preparation](#72-realtime-preparation) |
+| Build transcription text for speech, with punctuation and emotion | [Speech transcript](#73-speech-transcript) |
+| A speech model reads that transcription | [Speech synthesis](#74-speech-synthesis) |
+| Page text highlights in sync with the audio clock | [Highlight sync](#75-highlight-sync) |
+| Data, embeddings, and analysis stay in the browser | [Where work runs](#4-where-work-runs) and [IndexedDB](#5-indexeddb-storage-and-task-state) |
+| Transcription, analysis, and completion run on a stateless backend | [Stateless model API](#43-stateless-model-api) |
 
 ## 1. Product
 
-A reader uploads a book they already have. The system studies the pages, finds the chapters, reads the text, and stores a structured description of the book. When that work has finished, the reader may press play.
+A reader uploads a book they already have. The browser studies the pages, finds the chapters, reads the text, embeds the speakable passages, and stores a structured description of the book on the device. When that work has finished, the reader may press play.
 
-During playback a language model prepares the upcoming passage for speech: the words to say, the punctuation that shapes pauses, and an emotion for delivery. A text-to-speech model speaks that transcript. The page highlights the words that are sounding at the audio element's current time.
+During playback the browser asks a stateless model API to prepare the upcoming passage for speech: the words to say, the punctuation that shapes pauses, and an emotion for delivery. A second stateless call turns that transcript into audio. The browser stores both results locally. The page highlights the words that are sounding at the audio element's current time.
 
 The page the reader sees is the book page, not a reflowed article. Highlighting has to land on the printed text.
 
 ### In scope for this design
 
-- One reader and the books they upload.
-- A batch processing pipeline that must finish before play.
+- One reader and the books they upload, stored in that browser.
+- A batch processing pipeline that must finish before play, and that can resume after a reload.
+- Embeddings computed and kept in the browser, used to retrieve context without uploading the book.
 - A realtime path that prepares speech while a ready book is playing.
 - A sync contract between audio time, spoken words, and page position.
 - Enough metadata to describe the book, its chapters, and how names are pronounced.
+- A stateless backend for model calls that the browser should not make with a vendor key.
 
 ### Out of scope for this design
 
 - Choosing a final model vendor, hosting region, or price.
 - Accounts, sharing, billing, and storefronts.
+- A server-side library of the reader's books.
 - Editing the book's prose.
 - A mobile app. The reader is a web app in the suggestion below.
-- Legal advice about the uploaded file. The product stores a file the reader supplies and treats it as private to them.
+- Legal advice about the uploaded file. The product stores a file the reader supplies in their browser and treats it as private to them.
 
 ## 2. Reader journey
 
-1. The reader uploads a book file and sees it appear as **Uploaded**.
-2. Progress moves through page analysis, chapter separation, and text analysis. Play stays disabled.
+1. The reader picks a book file. The browser writes it into IndexedDB and shows **Uploaded**. The file is not uploaded to an application server as a stored object.
+2. Progress moves through page analysis, embeddings, chapter separation, and text analysis. Play stays disabled. Progress is a count of IndexedDB task records.
 3. Warnings are visible while the reader waits: low-confidence pages, missing title, uncertain chapter breaks. Processing can still finish with warnings.
-4. The book becomes **Ready**. The reader sees the chapter list, the metadata, and Play.
-5. Play starts at the first speakable passage, or at the last position if they have listened before.
-6. Audio starts. The current word (or, if word times are missing, the current passage) is highlighted on the page. When the spoken word sits on the next page, the page turns and the highlight follows.
-7. Pause, seek, speed changes, chapter jumps, and clicks on a word all move the same audio clock. The highlight reads that clock. It does not run on a second timer.
-8. Leaving and coming back restores the position.
+4. Closing the tab pauses the pipeline. Opening the app again continues from the task records. The file is still in IndexedDB.
+5. The book becomes **Ready**. The reader sees the chapter list, the metadata, and Play.
+6. Play starts at the first speakable passage, or at the last position if they have listened before.
+7. Audio starts from a blob stored locally, or from a blob just returned by the stateless speech call and then stored. The current word (or, if word times are missing, the current passage) is highlighted on the page. When the spoken word sits on the next page, the page turns and the highlight follows.
+8. Pause, seek, speed changes, chapter jumps, and clicks on a word all move the same audio clock. The highlight reads that clock. It does not run on a second timer.
+9. Leaving and coming back restores the position from IndexedDB.
 
 ```mermaid
 flowchart TD
-  upload[Upload the book]
-  pages[Analyse every page]
+  upload[Store the file in IndexedDB]
+  pages[Analyse every page in the browser]
+  embed[Embed spans in the browser]
   chapters[Separate chapters]
-  text[Analyse text and write metadata]
+  text[Analyse text and write metadata locally]
   gate{Book version Ready?}
   blocked[Play stays off]
   play[Reader starts audio]
-  prep[Language model prepares the upcoming transcript]
-  voice[Speech model reads the transcript]
+  prep[Stateless call prepares the transcript]
+  voice[Stateless call returns audio]
+  save[Browser stores transcript and audio]
   mark[Highlight the page from the audio clock]
 
-  upload --> pages --> chapters --> text --> gate
+  upload --> pages --> embed --> chapters --> text --> gate
   gate -->|still processing or failed| blocked
   blocked --> pages
-  gate -->|ready| play --> prep --> voice --> mark
+  gate -->|ready| play --> prep --> voice --> save --> mark
   mark --> prep
 ```
 
-The cycle through prepare, speech, and highlight is the listening session. The path from upload to the gate is the batch pipeline. Play is not offered from a half-finished pipeline.
+The cycle through prepare, speech, local save, and highlight is the listening session. The path from storing the file to the gate is the batch pipeline. Play is not offered from a half-finished pipeline.
 
 ## 3. Two different uses of the language model
 
-These are easy to collapse, and they should stay separate.
+These are easy to collapse, and they should stay separate. Both are stateless calls. The browser stores the results.
 
-**Batch, before play.** The model helps separate chapters, fill metadata, write summaries, list people, and attach pronunciation hints. Input is the extracted text of the book (by chapter, not one unbounded paste when the book is long). Output is stored on the book version. This work is part of "processing is done."
+**Batch, before play.** The model helps separate chapters when local signals are weak, fills metadata, writes summaries, lists people, and attaches pronunciation hints. The browser sends one chapter-sized payload, or the heading candidates, and writes the JSON onto the book version in IndexedDB. This work is part of "processing is done."
 
-**Realtime, after play.** The model looks at the passage about to be spoken, plus a small amount of context, and writes the speech transcript: punctuation, pauses, emotion, dialogue versus narration. Output is cached per passage and voice settings. This work is not part of the gate. A book can be Ready and still generate the next transcript a few seconds ahead of the voice.
+**Realtime, after play.** The model looks at the passage about to be spoken, plus a small amount of context the browser retrieved locally, and writes the speech transcript: punctuation, pauses, emotion, dialogue versus narration. The browser caches that transcript per passage and voice settings. This work is not part of the gate. A book can be Ready and still generate the next transcript a few seconds ahead of the voice.
 
-Batch understanding makes the realtime call cheaper and more stable. The realtime call should not re-discover the chapter list or the cast on every sentence.
+Batch understanding makes the realtime call cheaper and more stable. The realtime call should not re-discover the chapter list or the cast on every sentence. The embedding index used to pick context stays in the browser and is not part of the request except for the few snippets the browser chooses to include.
 
-## 4. System shape
+## 4. Where work runs
 
 ```mermaid
 flowchart LR
   reader[Reader]
-  web[Web reader]
-  api[API]
-  worker[Processing worker]
-  analyst[Text analyst]
-  speech[Speech engine]
-  db[("Book records")]
-  blob[("Source, rasters, audio")]
+  app[Browser app]
+  workers[In-browser workers]
+  idb[("IndexedDB records and blobs")]
+  api[Stateless model API]
+  models[Vendor models]
 
-  reader --> web
-  web --> api
-  api --> db
-  api --> worker
-  worker --> db
-  worker --> blob
-  worker --> analyst
-  api --> analyst
-  api --> speech
-  speech --> blob
-  web --> blob
+  reader --> app
+  app --> workers
+  app --> idb
+  workers --> idb
+  app --> api
+  api --> models
 ```
 
-Batch jobs run on the worker. The listening session calls the text analyst and the speech engine through the API, which caches transcripts and audio on the book version. The browser never talks to a model directly.
+The browser never sends the book as a stored object. Workers and the page write IndexedDB. The stateless API is a pure function from one request body to one response body.
 
-## 5. Batch processing
+### 4.1 In the browser
 
-A **book version** is one complete analysis of one upload. Re-running analysis creates a new version. Playback binds to a version, so a reprocess does not move highlights under an active session. The new version becomes the one Play uses only after it is Ready.
+- The source file, page rasters, and audio segments, as blobs.
+- Page text, word boxes, reading order, and word roles.
+- OCR of scanned pages.
+- Span building and hyphenation joining.
+- Embeddings of spans and headings, and nearest-neighbor retrieval over those vectors.
+- The task queue and the book-version state machine.
+- Playback position, voice settings, and the highlight clock.
+- Validation that a returned transcript still matches the printed words.
+- Rendering the PDF and drawing highlight rectangles.
+
+### 4.2 On the stateless backend
+
+- Completion and analysis calls: chapter-boundary proposals, metadata, summaries, people, pronunciation, and the speech transcript.
+- Speech synthesis from a transcript.
+- Optional alignment, when the speech response has no word timings: audio bytes and the known transcript in, timings out.
+
+Each of these is one request. The process may call a vendor. It writes no database row, no object, and no session. A second instance of the service can serve the next request. There is no affinity to a previous call.
+
+### 4.3 Stateless model API
+
+Suggested routes, so the constraint is concrete:
+
+| Route | Request | Response |
+| --- | --- | --- |
+| `POST /v1/complete` | `kind` (`chapters`, `metadata`, or `transcript`), the text payload, and the response schema name | JSON matching that schema |
+| `POST /v1/speak` | transcript, voice, style | audio bytes, media type, duration, optional word timings |
+| `POST /v1/align` | audio bytes plus the transcript text | word timings |
+
+Rules for every route:
+
+- The server can handle the request without reading anything it saved earlier.
+- A book id, if the client sends one, is ignored. It is not a key.
+- Bodies are not written to application logs.
+- Temporary files for a single request, if a vendor SDK needs them, are deleted before the response is finished.
+- Repeating the same request is a new computation. The browser dedupes with its own cache key before calling.
+
+Vendor API keys live only on this service. The browser receives results, not keys.
+
+## 5. IndexedDB storage and task state
+
+IndexedDB is both the store and the pipeline's state. A reload reads the same database and continues. There is one database for the origin.
+
+Ask for persistent storage with `navigator.storage.persist()` after the reader adds a book, so the browser is less likely to evict the file under storage pressure. Quota is still finite. Audio blobs are the eviction candidates. Source files, pages, spans, embeddings, and metadata are the records a rebuild would be expensive to replace.
+
+A Web Lock named for the book version keeps a single tab as the writer for that version. Other tabs can read.
+
+### 5.1 Object stores
+
+| Store | Key | Holds |
+| --- | --- | --- |
+| `books` | book id | filename title hint, current version id |
+| `versions` | version id | state, warnings, book id |
+| `pages` | page id | version id, page index, size in PDF points, confidence, extractor, and the page's words |
+| `chapters` | chapter id | version id, title, start and end word ids, source, confidence |
+| `spans` | span id | version id, chapter id, order, role, source word ids, source text |
+| `embeddings` | embedding id | owner id, model id, dimensions, `Float32Array` vector |
+| `metadata` | version id | the catalog in [Text analysis and metadata](#64-text-analysis-and-metadata) |
+| `transcripts` | transcript id | span or utterance id, voice, style, clause JSON |
+| `segments` | segment id | utterance span ids, duration, timing quality, blob id |
+| `tasks` | task id | version id, kind, status, input ref, heartbeat, error |
+| `sessions` | session id | version id, position, rate, voice, style |
+| `blobs` | blob id | kind, media type, and a Blob |
+
+Words live on the page record that produced them. A page is the unit of extraction and of drawing. Spans point at word ids on those pages. This keeps a 400-page book as hundreds of page records rather than one document.
+
+Indexes the pipeline needs: pages by `(versionId, pageIndex)`, spans by `(versionId, order)`, tasks by `(versionId, status)`, embeddings by `(ownerId, modelId)`, blobs by kind.
+
+### 5.2 Blobs
+
+IndexedDB stores `Blob` and `File` values directly. Use that for:
+
+- `source` — the original PDF
+- `page-raster` — a rendered page, only when OCR needs pixels
+- `audio` — one utterance
+
+Structured records stay structured. A PDF is not base64 inside a JSON field. An audio segment record points at a blob id. Deleting the blob drops the cache and leaves the spans in place, so playback can call `/v1/speak` again.
+
+### 5.3 Task state
+
+Pipeline progress is a set of task records, not a server job id.
+
+```json
+{
+  "id": "task_01",
+  "versionId": "bv_01",
+  "kind": "extract-page",
+  "status": "queued",
+  "inputRef": "3",
+  "heartbeatAt": null,
+  "error": null
+}
+```
+
+Kinds follow the pipeline: `extract-page`, `ocr-page`, `build-spans`, `embed-spans`, `chapters`, `metadata`, `ready-check`. Page extraction tasks are one per page and may run with a small worker pool. Later kinds wait until the tasks they depend on are `done`.
+
+The orchestrator, running in the page's worker support:
+
+1. Takes the Web Lock for the version.
+2. Selects a `queued` task whose dependencies are done.
+3. Sets it to `running` and writes `heartbeatAt`.
+4. Does the work. Model work is a stateless call. Everything else is local.
+5. Writes the outputs and sets the task to `done` before releasing the claim.
+6. On load, any `running` task whose heartbeat is older than about 30 seconds returns to `queued`.
+
+Closing the tab stops the loop. It does not lose completed pages. The next open resumes at the first unfinished task.
+
+### 5.4 Embeddings
+
+Embeddings are computed in the browser and stored in the `embeddings` store. They are part of analysis, and they do not go to the backend as an index.
+
+Suggested model class: a small sentence embedding running in a web worker (transformers.js, MiniLM-class). The model id is stored on every vector so a later model is a new set of rows, not an overwrite.
+
+What they are for:
+
+- Retrieve a handful of related spans as context for a realtime transcript call. The request contains those snippets. It does not contain the index.
+- Compare a heading line with the lines around it when chapter signals disagree, before spending a completion call.
+- Group repeated running headers locally so they can be marked `header` without a model call.
+- In-book search later, against the same store.
+
+A span's embedding is an input to Ready in the degraded sense below: the embed tasks should finish. If the embedding model cannot load, those tasks are marked skipped with a warning, retrieval context falls back to the previous and next spans, and Ready is still allowed. An embed task left `running` or `failed` without that explicit skip does block Ready.
+
+Vectors are `Float32Array` values in IndexedDB, not strings of numbers inside the span record.
+
+## 6. Batch processing
+
+A **book version** is one complete analysis of one file, stored entirely in IndexedDB. Re-running analysis creates a new version. Playback binds to a version, so a reprocess does not move highlights under an active session. The new version becomes the one Play uses only after it is Ready.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Uploaded
   Uploaded --> ReadingPages: start
-  ReadingPages --> SeparatingChapters: every page is terminal
+  ReadingPages --> Embedding: every page is terminal
+  Embedding --> SeparatingChapters: embed tasks done or skipped
   SeparatingChapters --> AnalysingText: chapter list stored
   AnalysingText --> Ready: metadata stored and spans cover the book
-  ReadingPages --> Failed: unrecoverable job error
-  SeparatingChapters --> Failed: unrecoverable job error
-  AnalysingText --> Failed: unrecoverable job error
+  ReadingPages --> Failed: unrecoverable local error
+  SeparatingChapters --> Failed: unrecoverable local error
+  AnalysingText --> Failed: unrecoverable local error
   Failed --> ReadingPages: reprocess
   Ready --> Reading: play
   Reading --> Ready: stop
 ```
 
-A page that cannot be read is **terminal**. It is stored as unreadable, with no invented text. It does not by itself fail the book. A job crash, a corrupt file, or an analyst failure that leaves chapters or metadata unfinished does fail the version. The previous Ready version, if any, stays the one the reader can play.
+A page that cannot be read is **terminal**. It is stored as unreadable, with no invented text. It does not by itself fail the book. A corrupt file, or a completion call that keeps failing until the reader stops retrying and leaves chapters or metadata unfinished, fails the version. The previous Ready version, if any, stays the one the reader can play. A failed stateless call is retried by re-queueing the task. The server remembers nothing that would make the retry different.
 
-Page jobs may run in parallel. Chapter separation starts after every page is terminal. Per-chapter summaries may run in parallel after the chapter list exists. The version becomes Ready only when the whole book has passed the gate in [When play becomes available](#55-when-play-becomes-available).
+Page tasks may run in parallel in browser workers. Chapter separation starts after every page is terminal and embed tasks are done or explicitly skipped. Per-chapter metadata calls may run in parallel after the chapter list exists. The version becomes Ready only when the whole book has passed the gate in [When play becomes available](#65-when-play-becomes-available).
 
-### 5.1 Upload
+### 6.1 Upload
 
-The reader sends a file. The API stores the bytes, records the filename, size, and media type, and creates a book version in **Uploaded**.
+The reader picks a file. The browser writes the `File` blob into `blobs`, records the filename, size, and media type, and creates a book version in **Uploaded** plus the page tasks it can already count. Nothing in this step calls the backend.
 
 Suggested first format: **PDF**, both text-layer PDFs and scanned PDFs. Page highlighting needs a stable page and a coordinate system. EPUB reflows with window width, so "the page" is not stable until we paginate for a specific layout. Photos of pages are a third extractor. Both can be added behind the same page extractor. They are not required to discuss the rest of this design.
 
-The original bytes stay stored so a later version can be built without asking for the file again.
+The original blob stays stored so a later version can be built without asking for the file again.
 
-### 5.2 Page analysis
+### 6.2 Page analysis
+
+This runs in the browser. PDF.js both draws the page and supplies the text extraction for a text-layer PDF, so the stored boxes and the rendered page come from one library. Highlighting uses the stored boxes. It does not string-match a second extraction at click time.
 
 Each page produces:
 
@@ -154,7 +286,7 @@ Each page produces:
 - A page confidence and the extractor that produced it: `text_layer` or `ocr`.
 - Warnings: low confidence, possible multi-column uncertainty, image-only page, encoding garbage.
 
-Bounding boxes are in **PDF user space**: origin at the bottom-left of the page, units in points, unscaled. The client converts them with the same viewport it uses to draw the page. Pixel boxes from a thumbnail are not the stored geometry. Scanned pages still use this space: render at a known scale, OCR in that pixel space, and convert boxes back to PDF points.
+Bounding boxes are in **PDF user space**: origin at the bottom-left of the page, units in points, unscaled. The client converts them with the same viewport it uses to draw the page. Pixel boxes from a thumbnail are not the stored geometry. Scanned pages still use this space: render at a known scale, OCR in that pixel space with tesseract.js inside a worker, and convert boxes back to PDF points.
 
 Word roles:
 
@@ -172,29 +304,32 @@ Word roles:
 
 Dialogue is not a page-analysis role. It is a classification of prose spans, assigned later when the speech transcript is written.
 
-Reading order is part of the page record. A two-column page stores column one top-to-bottom, then column two. Headers and footers are identified so they are not inserted into the column flow. Line-end hyphenation is joined into one speakable word and keeps both boxes, so the highlight can cover the split glyph and the speech says the whole word once.
+Reading order is part of the page record. A two-column page stores column one top-to-bottom, then column two. Headers and footers are identified so they are not inserted into the column flow. Repeated headers can be confirmed with the local embedding of those lines. Line-end hyphenation is joined into one speakable word and keeps both boxes, so the highlight can cover the split glyph and the speech says the whole word once.
 
-OCR text is accepted only with its confidence. Below a threshold (a number to pick during implementation, suggested starting point 60 on a 0–100 word confidence), the word is `unreadable` and is not spoken. A vision-model pass may retry that page once. If it still fails, the page stays unreadable and the reader sees a marker where that page would have been read.
+OCR text is accepted only with its confidence. Below a threshold (a number to pick during implementation, suggested starting point 60 on a 0–100 word confidence), the word is `unreadable` and is not spoken. A vision completion may retry that page once, as a stateless call that sends the page raster and returns words. The raster is not retained on the server. If the retry still fails, or the reader leaves it off, the page stays unreadable and the player shows a marker where that page would have been read. The vision retry is off unless the reader opts in, because it is the one path that sends a page image off the device.
 
 The extractor does not paraphrase. It records glyphs it can defend.
 
-### 5.3 Chapter separation
+### 6.3 Chapter separation
 
 A chapter is a title plus a half-open range of speakable spans: start inclusive, end exclusive. Ranges do not overlap and, together with any explicitly skipped front matter, cover every speakable span.
 
-Signals, used together:
+Signals, used together, cheapest local signal first:
 
 1. A table of contents, when the book has one. TOC entries carry a target page. They are the strongest signal.
 2. Heading words from page analysis (`Chapter`, `Part`, numbered headings, a heading role plus a following prose block).
-3. A language-model proposal when the first two disagree or are missing. The model receives heading candidates and the TOC text, not an instruction to invent chapters that have no anchor. Every proposed boundary must cite a page and a word id. A boundary with no anchor is discarded.
+3. Local embedding similarity between a candidate heading and the surrounding body, to drop running headers that merely look like titles.
+4. A stateless completion when the first three disagree or are missing. The request contains heading candidates and the TOC text, not the whole book, and not an instruction to invent chapters that have no anchor. Every proposed boundary must cite a page and a word id. A boundary with no anchor is discarded. The browser writes the kept boundaries into `chapters`.
 
-Each chapter stores `title`, `start_word_id`, `end_word_id`, `confidence`, and `source` (`toc`, `heading`, or `model`). The reader can correct a boundary later. A correction writes a new book version whose spans are retargeted. It does not require a new upload. Correcting chapters is part of the design even if the first build only displays the suggestion.
+Each chapter stores `title`, `start_word_id`, `end_word_id`, `confidence`, and `source` (`toc`, `heading`, `embedding`, or `model`). The reader can correct a boundary later. A correction writes a new book version in IndexedDB whose spans are retargeted. It does not require picking the file again. Correcting chapters is part of the design even if the first build only displays the suggestion.
 
 Front matter (title page, copyright, dedication, contents) and back matter (index, bibliography) are chapters or non-chapters with a `matter` flag. The default listening path skips the contents pages and the index. The reader can open them.
 
-### 5.4 Text analysis and metadata
+### 6.4 Text analysis and metadata
 
 "Full metadata" means the catalog below. A field that is not in the book is stored as unknown. The model must not fill a plausible author, year, or ISBN from outside knowledge. Inferred fields (a synopsis, a character description) are marked `inferred` and carry the span ids they are based on.
+
+The browser builds the request from local chapter text. The stateless `/v1/complete` call with `kind: metadata` returns JSON. The browser validates it and writes `metadata`. The server does not keep the chapter text.
 
 **Bibliographic**
 
@@ -225,29 +360,31 @@ Front matter (title page, copyright, dedication, contents) and back matter (inde
 - pages by extractor (`text_layer` vs `ocr`)
 - unreadable pages
 - low-confidence chapter boundaries
+- embedding tasks skipped, if any
 - fields left unknown
 
 Every stored value has provenance: `found` (with word ids) or `inferred` (with word ids), plus a confidence from 0 to 1.
 
-Pronunciation hints exist so the speech adapter can say a name the same way throughout the book. They are metadata, produced in batch, and consumed by the realtime transcript.
+Pronunciation hints exist so the speech adapter can say a name the same way throughout the book. They are metadata, produced in batch, stored locally, and copied into the realtime request context by the browser.
 
-### 5.5 When play becomes available
+### 6.5 When play becomes available
 
 A version is **Ready** when all of the following are true:
 
 1. Every page has a terminal analysis record, including pages marked unreadable.
-2. The chapter list is stored, every boundary has a word anchor, and the ranges cover the speakable words without overlap.
-3. The speakable span list is stored and each span points at one or more words.
-4. The metadata record is stored. Unknown fields are allowed. A crashed metadata job is not "unknown"; the version stays not Ready.
-5. Bibliographic fields that were found in the text cite their anchors. The synopsis and per-chapter summaries are present or explicitly marked as skipped with a warning. A skipped summary does not block Ready. A missing metadata record does.
+2. Span records exist and each span points at one or more words.
+3. Embed tasks are `done` or explicitly `skipped`.
+4. The chapter list is stored, every boundary has a word anchor, and the ranges cover the speakable words without overlap.
+5. The metadata record is stored in IndexedDB. Unknown fields are allowed. A crashed metadata task is not "unknown"; the version stays not Ready.
+6. Bibliographic fields that were found in the text cite their anchors. The synopsis and per-chapter summaries are present or explicitly marked as skipped with a warning. A skipped summary does not block Ready. A missing metadata record does.
 
-Realtime transcripts and audio files are not required for Ready. They are created when the reader plays, and then cached.
+Realtime transcripts and audio blobs are not required for Ready. They are created when the reader plays, and then stored locally.
 
-Until Ready, the client shows progress and does not start audio.
+Until Ready, the client shows progress from the task store and does not start audio.
 
-### 5.6 The speakable span
+### 6.6 The speakable span
 
-The span is the contract between metadata, speech, and highlighting.
+The span is the contract between metadata, embeddings, speech, and highlighting.
 
 A span is a short run of words in reading order, usually a sentence, that will be prepared and spoken as a unit. It stores:
 
@@ -261,30 +398,30 @@ A span is a short run of words in reading order, usually a sentence, that will b
 
 Spans do not contain headers, footers, or page numbers. Footnotes and captions are spans with `spoken: false` until a setting turns them on.
 
-Spans are immutable inside a book version. A corrected chapter list or a new extraction is a new version.
+Spans are immutable inside a book version. A corrected chapter list or a new extraction is a new version. The embedding row for a span is keyed by span id and model id, and it is replaced only when that model id changes.
 
-## 6. Listening session
+## 7. Listening session
 
-### 6.1 Position
+### 7.1 Position
 
 A playback position is `(book_version_id, audio_segment_id, offset_ms)` once audio exists. Before the first synthesis for a jump target, the position is `(book_version_id, span_id, word_id)`.
 
-The session stores that position on pause and on a short interval while playing, so a closed tab can resume.
+The session record in IndexedDB stores that position on pause and on a short interval while playing, so a closed tab can resume. The server has no session.
 
-### 6.2 Realtime preparation
+### 7.2 Realtime preparation
 
-When play starts, or when the reader jumps, the API prepares a **lookahead window**: the current audio segment and the next two. While segment N is playing, the window slides so N+1 and N+2 are ready before N ends.
+When play starts, or when the reader jumps, the browser prepares a **lookahead window**: the current audio segment and the next two. While segment N is playing, the window slides so N+1 and N+2 are ready before N ends.
 
 Preparation for a span:
 
-1. Load the span's source text and word ids.
-2. Load context: the previous span's transcript, the next span's source text, the chapter summary, the people and pronunciation sheet, and the reader settings (voice, emotional intensity `subtle` or `full`, whether footnotes are spoken).
-3. Ask the text analyst for a speech transcript that obeys the schema in the next section.
-4. Validate alignment. On failure, keep the source text as a single clause with emotion `neutral` and the original punctuation.
-5. Synthesize audio for a group of validated transcripts (an **utterance**).
-6. Store the transcript, the audio, and the word timings. The cache key is `(book_version_id, utterance_span_ids, voice_id, style_id, transcript_hash)`.
+1. Load the span's source text and word ids from IndexedDB.
+2. Load context locally: the previous span's transcript, the next span's source text, the chapter summary, the people and pronunciation sheet, the reader settings, and a few spans retrieved by embedding similarity. The retrieval result is a short list of texts. The vectors stay put.
+3. Call `POST /v1/complete` with `kind: transcript` and that payload. The response is a speech transcript that must obey the schema in the next section.
+4. Validate alignment in the browser. On failure, keep the source text as a single clause with emotion `neutral` and the original punctuation.
+5. Call `POST /v1/speak` for a group of validated transcripts (an **utterance**). If timings are missing, call `POST /v1/align` with the audio bytes just received and the transcript text.
+6. Store the transcript, the audio blob, and the word timings in IndexedDB. The cache key is `(book_version_id, utterance_span_ids, voice_id, style_id, transcript_hash)`.
 
-A jump cancels lookahead that is no longer near the new position. Cached audio for the destination is reused.
+A jump cancels lookahead fetches that are no longer near the new position. Cached audio for the destination is reused from IndexedDB. The server cannot cancel work it does not track; the browser simply ignores a response whose cache key is no longer in the window.
 
 If the current utterance is not ready, the reader sees **Preparing** and hears nothing. The fallback transcript (original words, neutral emotion) is tried before surfacing a failure. The player does not skip ahead, because a skip would desynchronize the page from the story.
 
@@ -292,30 +429,29 @@ If the current utterance is not ready, the reader sees **Preparing** and hears n
 sequenceDiagram
   participant Reader
   participant App
-  participant API
-  participant Analyst as Text analyst
-  participant Speech as Speech engine
+  participant IDB as IndexedDB
+  participant API as Stateless API
   Reader->>App: Play or jump
-  App->>API: Prepare window at position
-  API->>Analyst: Transcribe each span in the window
-  Analyst-->>API: Transcript JSON
-  API->>API: Reject transcripts that do not align
-  API->>Speech: Synthesize the current utterance
-  Speech-->>API: Audio and word times
-  API-->>App: Audio URL, timings, word boxes
+  App->>IDB: Load window, settings, retrieved snippets
+  App->>API: POST /v1/complete transcript payload
+  API-->>App: Transcript JSON
+  App->>App: Reject transcripts that do not align
+  App->>API: POST /v1/speak
+  API-->>App: Audio bytes and word times
+  App->>IDB: Store transcript and audio blob
   App->>Reader: Start audio and highlight the first word
   par While the utterance plays
     App->>App: Map currentTime to a word box
-    API->>Analyst: Transcribe the next window
-    API->>Speech: Synthesize the next utterance
+    App->>API: Complete and speak the next window
+    App->>IDB: Store the next blob
   end
 ```
 
-The realtime call sees a window, not the whole book. The batch pass already stored the book-level picture. Sending the entire book on every sentence is out of scope for this design.
+The realtime call sees a window the browser assembled, not the whole book. The batch pass already stored the book-level picture locally. Sending the entire book on every sentence is out of scope for this design.
 
-### 6.3 Speech transcript
+### 7.3 Speech transcript
 
-The transcript is what the speech engine receives. It is not a retelling. The page highlights printed words, so the spoken words have to be those printed words.
+The transcript is what the speech call receives. It is not a retelling. The page highlights printed words, so the spoken words have to be those printed words. The browser stores this JSON. The server returns it and drops it.
 
 Internal schema:
 
@@ -354,7 +490,7 @@ Rules:
 - `pause_after_ms` is a hint. The speech adapter may honor it as a break. Suggested cap: 800 ms, so a hint cannot insert a long silence.
 - `source_word_ids` map the clause back to page words, in order.
 
-Alignment check before the transcript is kept:
+Alignment check, in the browser, before the transcript is kept:
 
 1. Compare clause text to the source words after case-folding and after treating punctuation as separate from words.
 2. Accept when the content words are the same sequence. Punctuation may differ.
@@ -362,7 +498,7 @@ Alignment check before the transcript is kept:
 
 Emotion is not drawn on the page. The page shows the book. Emotion affects the voice only.
 
-The speech adapter compiles clauses into whatever the current engine accepts. For an engine that understands SSML, emotion and pauses become SSML. For an engine that accepts plain text, the adapter sends the punctuated text and drops emotion tags it cannot express. The stored transcript still has the emotion, so a later engine can use it without another analyst call.
+The browser compiles clauses into whatever the current engine accepts before the speak call, or the speak call accepts the JSON and compiles it. For an engine that understands SSML, emotion and pauses become SSML. For an engine that accepts plain text, the adapter sends the punctuated text and drops emotion tags it cannot express. The stored transcript still has the emotion, so a later engine can use it without another analyst call.
 
 Example of the same sentence as SSML, produced by the adapter, not stored as the source of truth:
 
@@ -376,24 +512,24 @@ Example of the same sentence as SSML, produced by the adapter, not stored as the
 
 Engines name emotions differently. The adapter owns that translation. The rest of the system only sees the closed set above.
 
-### 6.4 Speech synthesis
+### 7.4 Speech synthesis
 
-Consecutive ready transcripts are grouped into one **utterance** so the voice can phrase across sentence boundaries. Grouping rules:
+Consecutive ready transcripts are grouped into one **utterance** so the voice can phrase across sentence boundaries. Grouping happens in the browser. Grouping rules:
 
 - Target about 8 to 25 seconds of speech. Short enough to seek and to retry, long enough for prosody.
 - Do not cross a chapter boundary.
 - May cross a page boundary. The page turns in the middle of the audio when the word's page changes.
 - Do not include a span with `spoken: false`.
 
-The speech engine returns:
+`POST /v1/speak` returns:
 
-- audio bytes (suggested container: audio the browser can play in an `<audio>` element, such as AAC in M4A or Opus in audio/webm; pick one at implementation time and store the media type)
+- audio bytes (suggested container: audio the browser can play in an `<audio>` element, such as AAC in M4A or Opus in audio/webm; pick one at implementation time and store the media type on the blob)
 - duration
 - word timings: `{source_word_id, start_ms, end_ms}` relative to the start of this audio segment
 
-Timings come from the engine when it provides them. When it does not, an aligner runs on this audio and the known transcript text, and the timings are mapped back through `source_word_ids`. If alignment also fails, the segment is stored with utterance-level timing only: the whole utterance's spans highlight for the duration, and the record is marked `coarse`. Coarse is a degraded mode, not the default.
+The browser writes the bytes into `blobs` and the timings onto the segment record, then plays the blob with an object URL or a `blob:` source. Timings come from the speak response when it provides them. When it does not, `/v1/align` runs on those same bytes and the known transcript, and the timings are mapped back through `source_word_ids`. The align request is also stateless. If alignment fails, the segment is stored with utterance-level timing only: the whole utterance's spans highlight for the duration, and the record is marked `coarse`. Coarse is a degraded mode, not the default.
 
-### 6.5 Highlight sync
+### 7.5 Highlight sync
 
 The audio element is the only clock. `currentTime` of the playing segment, interpreted with that segment's word timings, selects the word. Playback rate changes `currentTime` and the highlight together. Pause freezes both. A scrubber sets `currentTime`. There is no parallel animation timer estimated from word counts.
 
@@ -416,16 +552,16 @@ Client rules:
 
 1. On each animation frame while playing, and on `seeked` and `ratechange`, read `currentTime`.
 2. Find the timing with `start_ms <= currentTime < end_ms`. In a gap between words, keep the previous word highlighted.
-3. Resolve source word ids to boxes.
+3. Resolve source word ids to boxes stored on the page records.
 4. If those words are on another page, change the page, then draw.
-5. Convert PDF user-space boxes through the page viewport into overlay rectangles. The overlay sits on the rendered page. String-matching against a second text extractor is not the highlight method, because the two extractors will disagree on hyphenation, ligatures, and order.
-6. A click or keyboard activation on a word seeks the audio to that word's `start_ms`, loading the segment first if needed. The highlight moves because the clock moved.
+5. Convert PDF user-space boxes through the page viewport into overlay rectangles. The overlay sits on the rendered page.
+6. A click or keyboard activation on a word seeks the audio to that word's `start_ms`, loading the segment blob first if needed. The highlight moves because the clock moved.
 
-Chapter next and previous seek to the first spoken word of the target chapter. If that utterance is not cached, the UI shows Preparing on that chapter, builds it, then seeks.
+Chapter next and previous seek to the first spoken word of the target chapter. If that utterance blob is not in IndexedDB, the UI shows Preparing on that chapter, builds it through the stateless calls, stores it, then seeks.
 
 Speed is a playback rate on the audio element (suggested range 0.8 to 1.6). It does not rewrite the transcript.
 
-### 6.6 Worked example
+### 7.6 Worked example
 
 Invented passage, as stored after page analysis. Page 3. Boxes are illustrative PDF points.
 
@@ -441,9 +577,9 @@ Invented passage, as stored after page analysis. Page 3. Boxes are illustrative 
 | w8 | at | 128, 604, 14, 12 |
 | w9 | noon. | 146, 604, 36, 12 |
 
-One span, `sp_3_1`, words w1–w9, role `narration`, chapter "Chapter 1".
+One span, `sp_3_1`, words w1–w9, role `narration`, chapter "Chapter 1". Its embedding is a local vector. The realtime request includes this span's text and, if retrieval finds them, a few short neighbor snippets. It does not include the vector.
 
-Realtime transcript:
+Realtime transcript, stored after `/v1/complete` returns and the browser accepts the alignment:
 
 | Clause text | Emotion | Source words |
 | --- | --- | --- |
@@ -452,7 +588,7 @@ Realtime transcript:
 
 The content words match, so the transcript is kept. "waited." and "noon." keep their periods.
 
-The speech engine returns a 4.2 s segment. Mapped timings:
+`/v1/speak` returns a 4.2 s segment. The browser stores the blob and these timings:
 
 | Start | End | Word |
 | --- | --- | --- |
@@ -470,71 +606,86 @@ At `currentTime = 1.80` the highlighted word is **station**, box `(100, 622, 48,
 
 If this segment had only coarse timing, the highlight would cover w1–w9 for the whole 4.2 s and the record would say `coarse`.
 
-## 7. Records
+## 8. Records
 
-Names for the design, not a physical schema.
+The records in [IndexedDB storage and task state](#5-indexeddb-storage-and-task-state) are the physical store. The names below are the design objects. All of them are local.
 
 ```mermaid
 erDiagram
   Book ||--o{ BookVersion : has
-  Book ||--|| SourceFile : stores
+  Book ||--|| SourceBlob : stores
   BookVersion ||--o{ Page : contains
   Page ||--o{ Word : contains
   BookVersion ||--o{ Chapter : contains
   BookVersion ||--o{ Span : contains
   Chapter ||--o{ Span : orders
   Span }o--o{ Word : anchors
+  Span ||--o{ Embedding : has
   Span ||--o| SpeechTranscript : prepared_as
   AudioSegment }o--|{ SpeechTranscript : speaks
+  AudioSegment ||--|| AudioBlob : bytes
   AudioSegment ||--o{ WordTiming : times
+  BookVersion ||--o{ Task : resumes
   Book ||--o{ PlaybackSession : resumes
   PlaybackSession }o--|| BookVersion : pins
 ```
 
-- **Book.** Owner, title hint from the filename until metadata replaces it, current Ready version id.
-- **SourceFile.** Object-storage key, media type, byte size, hash.
+- **Book.** Title hint from the filename until metadata replaces it, current Ready version id. No server owner record. The owner is whoever can open this browser profile.
+- **SourceBlob.** Blob id, media type, byte size, hash.
 - **BookVersion.** State, warnings, created time. Immutable once Ready except for cached transcripts and audio, which attach to it without changing spans.
 - **Page, Word.** As in page analysis.
-- **Chapter, Span.** As above.
-- **Metadata.** The catalog in [Text analysis and metadata](#54-text-analysis-and-metadata), one record per version, fields individually provenanced.
-- **SpeechTranscript, AudioSegment, WordTiming.** Cache. Safe to delete; playback can rebuild them.
+- **Chapter, Span, Embedding.** As above.
+- **Metadata.** The catalog in [Text analysis and metadata](#64-text-analysis-and-metadata), one record per version, fields individually provenanced.
+- **SpeechTranscript, AudioSegment, AudioBlob, WordTiming.** Cache. Safe to delete; playback can rebuild them with stateless calls.
+- **Task.** The resume record for processing.
 - **PlaybackSession.** Version id, segment id, offset, rate, voice, style.
 
-Ids are opaque strings. Page numbers are attributes, not identities, because a reprocess can change them. Sessions point at a version so identities stay stable for the life of that version.
+Ids are opaque strings minted in the browser. Page numbers are attributes, not identities, because a reprocess can change them. Sessions point at a version so identities stay stable for the life of that version.
 
-## 8. Failure behavior
+## 9. Failure behavior
 
 | Situation | Behavior |
 | --- | --- |
-| Corrupt file, no pages | Version **Failed**. Message explains that the file could not be opened. |
+| Corrupt file, no pages | Version **Failed**. Message explains that the file could not be opened. The blob remains so the reader can remove it. |
+| Tab closed mid-pipeline | Tasks already `done` stay done. Stale `running` tasks return to `queued` on the next open. |
 | One OCR page fails | That page is unreadable. Other pages continue. The listening path shows a short marker and moves to the next spoken span. |
 | Chapter model returns a boundary with no word id | Boundary is dropped. If nothing remains, the book is one chapter titled with the book title, and a warning is stored. |
-| Metadata call fails | Version is not Ready. Retry the metadata job. Spans already built are kept inside the version. |
+| Completion call fails | The task returns to `queued` with the error. The version is not Ready. Spans already built stay in IndexedDB. The retry sends the payload again. |
+| Embedding model cannot load | Embed tasks are marked skipped with a warning. Retrieval uses neighbor spans only. Ready is still allowed. |
 | Transcript fails alignment | Fallback clause: original span text, neutral emotion. Highlight still has word ids. |
-| Speech engine or aligner errors | Preparing state, then a retry. The player does not skip the span. |
+| Speech or align call errors | Preparing state, then a retry. The player does not skip the span. |
 | Alignment cannot produce word times | Segment marked `coarse`. Highlight the utterance's spans for its duration. |
 | Reader seeks into an uncached chapter | Preparing on that chapter, then play from its first spoken word. |
+| Storage quota exceeded | Stop creating new audio blobs, keep analysis records, and evict the oldest audio blobs that are outside the current lookahead. Show that listening may need to synthesize again. |
 | Reprocess while a session is open | The open session keeps its version. The next new session uses the new Ready version. |
+| Two tabs open the same version | The Web Lock makes one tab the writer. The other shows progress from IndexedDB. |
 
-Progress for the waiting screen is countable: pages terminal / pages total, then chapters, then metadata. Percentages that jump backward are worse than stage counts.
+Progress for the waiting screen is countable: tasks done / tasks in the current stage, reported as pages, then embeddings, then chapters, then metadata. Percentages that jump backward are worse than stage counts.
 
-## 9. Privacy
+## 10. Privacy
 
-The book is private to the uploader. The design still sends text off the machine when the suggested hosted models are used:
+The book at rest stays in the browser. IndexedDB is the copy that exists.
 
-- Batch analysis sends extracted chapter text and heading candidates to the text analyst.
-- Realtime preparation sends the upcoming spans and a small context (previous transcript, chapter summary, pronunciation sheet) to the text analyst.
-- Speech synthesis sends the transcript, which is the printed words plus emotion, to the speech engine.
+A stateless call still sends some text off the device, and only that:
 
-The browser receives audio and geometry. It does not receive API keys, and it does not call the models.
+- Chapter proposals send heading candidates and TOC text.
+- Metadata completion sends the chapter text the browser put in that request.
+- Realtime preparation sends the upcoming spans and a small retrieved context.
+- Speech synthesis sends the transcript, which is the printed words plus emotion.
+- An opted-in vision retry sends one page image.
+- Align sends one utterance's audio and its transcript.
 
-A local analyst and a local speech engine can sit behind the same interfaces. That alternative is for the case where this data flow is unacceptable. Emotion quality has to be judged again on that path. See the stack section.
+The embedding index, the source PDF, the page word store, playback position, and cached audio are not uploaded as data to keep. The speak and align calls contain audio only for the duration of that request.
 
-Caches (transcripts, audio) are derived data and can be deleted without deleting the book version.
+The browser does not receive vendor API keys. Server logs omit request and response bodies.
 
-## 10. Settings that change output
+Caches (transcripts, audio blobs) are derived data in IndexedDB and can be deleted without deleting the book version. The server has nothing corresponding to delete.
 
-Stored on the playback session, and part of the audio cache key when they change the sound:
+If even those request bodies are unacceptable, the same browser interfaces can call a local model instead of `/v1/complete` and `/v1/speak`. Emotion quality has to be judged again on that path. The storage design does not change.
+
+## 11. Settings that change output
+
+Stored on the playback session in IndexedDB, and part of the audio cache key when they change the sound:
 
 - voice
 - emotional intensity: `subtle` (bias emotions toward `calm` / `neutral` unless the transcript says `whispered` or `angry`) or `full` (use the transcript emotion as returned)
@@ -544,75 +695,85 @@ Stored on the playback session, and part of the audio cache key when they change
 
 Changing voice or intensity prepares a new window. Changing rate does not.
 
-## 11. Suggested stack
+## 12. Suggested stack
 
-Proposal for discussion. It is specific so we can argue about something concrete. It is not a lock, and implementation should not start from this section alone.
+Proposal for the libraries. It is specific so the constraints have somewhere to land. It is not a lock. The constraints in the status section are not optional parts of this proposal.
 
-### 11.1 Shape
+### 12.1 Shape
 
-A web reader plus a Python API and worker.
+A static web app and a stateless model service.
 
 ```text
-apps/web          Next.js, React, TypeScript
-apps/api          FastAPI
-apps/worker       same Python package, queue entrypoints
+apps/web          Vite, React, TypeScript
+apps/model-api    FastAPI, no database
 specs/discussion  this document
 ```
 
-Local development runs those processes with PostgreSQL, Redis, and MinIO.
+The web app has no server session and no application database. Vite is the suggestion because the app's storage is IndexedDB, not a server render. The model API can be scaled as identical stateless replicas.
 
-The split exists because page extraction, OCR, and audio alignment are Python libraries, and the highlight has to be a web page on top of the real PDF. One language would mean reimplementing either the document stack or the reader.
+Local development runs the web app and the model API. It does not run PostgreSQL, Redis, or object storage.
 
-### 11.2 Components
+### 12.2 Components
 
 | Concern | Suggestion | Why this one |
 | --- | --- | --- |
-| Reader UI | Next.js and React | Upload, progress, chapter list, and the player in one app |
-| Draw the PDF | PDF.js | Renders the page the file actually contains |
-| Highlight | Rectangles on an overlay, converted with the PDF.js viewport | Geometry comes from our stored PDF-point boxes. We do not match strings against PDF.js's text layer |
-| API | Python 3.12, FastAPI, Pydantic | Shared types with the worker and the transcript schema |
-| Jobs | Redis and ARQ | The upload request returns as soon as the file is stored. Page jobs run in parallel |
-| Records | PostgreSQL | Versions, pages, words, spans, transcripts, sessions |
-| File bytes | S3-compatible storage; MinIO locally | Source PDF, rendered rasters, audio segments |
-| Text-layer PDF | PyMuPDF | Words and boxes in PDF user space |
-| Scanned PDF | PyMuPDF render, then Tesseract | First OCR path. A vision-model retry only for low-confidence pages |
-| EPUB, camera images | Later, same `PageExtractor` interface | Stable pages are the highlighting problem we are solving first |
-| Text analyst | Hosted model with JSON-schema output, behind `TextAnalyst` | Chapters, metadata, and transcripts are structured output. Starter to discuss: OpenAI structured outputs. Same schema can target Anthropic or Gemini |
-| Speech | Expressive TTS behind `SpeechEngine`. Starter to discuss: an ElevenLabs-class API | The product asks for emotion, punctuation, and a voice, not a flat reader |
-| Word times | Engine timings when present; otherwise faster-whisper alignment against the known transcript | Highlight needs times even when the voice does not return them |
-| Clock | HTML `<audio>` `currentTime` | One clock for play, pause, seek, and rate. A hand-rolled timer drifts |
-| First-deploy access | Single owner, or a proxy in front of the app | Multi-user auth is out of scope. Books stay private to that owner |
+| Reader UI | Vite, React, TypeScript | Upload, progress, chapter list, and the player, with storage in the page |
+| Draw and extract the PDF | PDF.js | One library renders the page and produces the text items whose boxes we store |
+| Highlight | Rectangles on an overlay, converted with the PDF.js viewport | Geometry comes from the boxes stored at extraction |
+| Local workers | Web Workers | Page extraction, OCR, and embeddings stay off the UI thread |
+| Records and blobs | IndexedDB, via the `idb` helper | Transactions, indexes, and `Blob` values. This is the state manager for tasks |
+| Cross-tab writer | Web Locks | One orchestrator per book version |
+| Quota | `navigator.storage.persist()`, evict audio blobs first | Analysis records outlive the speech cache |
+| Scanned PDF | PDF.js render to a bitmap, then tesseract.js | OCR stays in the browser |
+| Embeddings | transformers.js, MiniLM-class, in a worker | Vectors are computed and stored locally |
+| EPUB, camera images | Later, same in-browser extractor interface | Stable pages are the highlighting problem we are solving first |
+| Completion | `POST /v1/complete` on the stateless API | Chapters, metadata, and transcripts are structured output. Starter to discuss: OpenAI structured outputs, called only from the API process |
+| Speech | `POST /v1/speak`. Starter to discuss: an ElevenLabs-class API behind that route | The product asks for emotion, punctuation, and a voice |
+| Word times | Timings on the speak response; otherwise `POST /v1/align` | The align call sees the bytes once and returns timings |
+| Clock | HTML `<audio>` `currentTime` on a local blob | One clock for play, pause, seek, and rate |
+| Model API | Python 3.12, FastAPI | A thin proxy with a schema check, no store |
 
-### 11.3 Interfaces
+### 12.3 What the model API must not grow
 
-These three seams are the point of the suggestion. The libraries above can change without changing spans, transcripts, or the highlight clock.
+- A book table, a user table, or a job table.
+- Object storage for PDFs or audio.
+- A queue of the reader's pipeline. The task queue is IndexedDB.
+- Sticky sessions.
+
+If a feature needs those, it belongs in the browser, or the design needs a new discussion.
+
+### 12.4 Interfaces
+
+These seams keep the library choices replaceable. The first three run in the browser. The last three are the stateless calls, or an in-browser implementation of the same function signatures.
 
 ```text
-PageExtractor.extract(source) -> pages and words
+PageExtractor.extract(blob) -> pages and words          // browser
+Embedder.embed(spans) -> vectors                        // browser
+Retriever.nearest(vector, k) -> span snippets           // browser, over IndexedDB
 
-TextAnalyst.propose_chapters(headings, toc) -> anchored boundaries
-TextAnalyst.write_metadata(chapters) -> provenance-bearing metadata
-TextAnalyst.transcribe(span, context, style) -> speech transcript
-
-SpeechEngine.synthesize(transcript, voice) -> audio and optional word times
-Aligner.align(audio, transcript) -> word times
+complete(kind, payload) -> JSON                         // POST /v1/complete
+speak(transcript, voice) -> audio and optional timings  // POST /v1/speak
+align(audio, transcript) -> word timings                // POST /v1/align
 ```
 
-`TextAnalyst` has three methods because the batch and realtime prompts are different. They share one client and one schema validator.
+The browser validates every completion against the transcript and metadata schemas before writing IndexedDB.
 
-### 11.4 Local-model alternative
+### 12.5 In-browser models and the stateless calls
 
-If chapter text and transcripts must not leave the machine, the same interfaces point at a local instruction-following model and a local speech engine such as Piper or Kokoro, with faster-whisper still doing alignment. OCR via Tesseract is already local in the suggestion. The thing to re-evaluate on this path is emotion: many local voices will ignore the emotion field, and the punctuated text will carry the delivery alone.
+Page extraction, OCR, and embeddings are in-browser in this suggestion, not as an alternate path.
 
-### 11.5 What this suggestion intentionally leaves open
+Completion and speech stay on the stateless API so vendor keys stay off the page. The same function signatures can later call an in-browser model when one is good enough. Storage does not move when that happens.
 
-- The exact model version and the account that bills it.
-- Audio codec, as long as the browser can play it and we store the media type.
+### 12.6 What this suggestion intentionally leaves open
+
+- The exact model version and the account that bills the stateless calls.
+- Audio codec, as long as the browser can play it and the blob stores the media type.
 - The numeric OCR confidence cutoff.
-- Whether the first screenshot of the product includes a chapter-correction UI or only displays suggested chapters.
-- How large a PDF the first version is expected to finish. The pipeline is per page, so size is a cost and time question, not a different architecture. A suggested discussion target is a 400-page novel.
+- Whether the first build includes a chapter-correction UI or only displays suggested chapters.
+- How large a PDF the first version is expected to finish on a typical laptop. The pipeline is per page and per task. A suggested discussion target is a 400-page novel, with audio cached only around the playhead plus a bounded history.
+- Whether `/v1/align` is a separate route or a mode of `/v1/speak`. The behavior is the same: bytes in, timings out, nothing kept.
 
-## 12. Open questions
+## 13. Open questions
 
 1. Is PDF-only the right first upload, with EPUB explicitly later?
 2. Is the Ready gate correct to wait for the whole book, rather than allowing play from chapter 1 while later chapters are still processing? This document follows the request: processing finishes, then audio starts.
@@ -620,31 +781,37 @@ If chapter text and transcripts must not leave the machine, the same interfaces 
 4. May the transcript restore punctuation the extractor dropped, given that content words must stay identical?
 5. Is word-level highlight the acceptance bar, with coarse utterance highlight only as a failure mode?
 6. One voice for narration and dialogue in the first version, or a second voice when `speaker` is set?
-7. Hosted analyst and speech (section 11.2) or the local alternative (section 11.4) as the default we actually build?
-8. Do we keep generated audio indefinitely, or treat it as a cache with a size limit?
+7. Should metadata completion and the speech transcript stay on the stateless API, or move in-browser under the same function signatures once a local model is good enough? Embeddings and page data stay in the browser either way.
+8. How much audio history should IndexedDB keep before evicting blobs?
 9. Should the reader confirm uncertain chapter boundaries before Ready, or fix them after listening is already possible?
 10. Are tables ever spoken, or always left as on-page content?
+11. Is an opted-in vision retry for failed OCR pages acceptable, given it sends a page image to the stateless API?
 
-## 13. Follow-up discussions
+## 14. Follow-up discussions
 
 These are slices of this document, not extra product. Open them when implementation is actually being planned.
 
-- Page extractor contract, including OCR confidence and PDF user-space boxes.
+- IndexedDB object stores, blob kinds, task resume, and the Web Lock.
+- In-browser page extractor contract, including OCR confidence and PDF user-space boxes.
+- Embedding model, what it indexes, and what a transcript request is allowed to include.
+- Stateless `/v1/complete`, `/v1/speak`, and `/v1/align` contracts, including the rule that bodies are not logged.
 - Chapter boundary records and later correction.
 - Speech transcript schema, alignment rejection, and the emotion set.
 - Audio segment grouping, timing, and the highlight overlay.
 - Book version state machine and the Ready gate.
-- Threat model for hosted models receiving book text.
 
-## 14. Acceptance for a later implementation
+## 15. Acceptance for a later implementation
 
 When this design is built, a test book (a short PDF we have rights to use) should demonstrate all of the following:
 
-1. Upload moves to Ready only after pages, chapters, spans, and the metadata record exist.
-2. Play is unavailable before Ready.
-3. At a paused `currentTime`, the highlighted boxes are exactly the words whose timings contain that time.
-4. Seeking the audio moves the highlight. Clicking a word seeks the audio.
-5. A page turn happens because the next word's page index changed, during continuous audio.
-6. A transcript whose words differ from the page is rejected and the spoken fallback is the printed sentence.
-7. Emotion is present on the stored transcript and is not painted onto the page.
-8. Deleting cached audio and playing again rebuilds it from the stored spans.
+1. The file, pages, spans, embeddings, and metadata are readable from IndexedDB after processing. The model API has no book record.
+2. Upload moves to Ready only after pages, embeddings or an explicit skip, chapters, spans, and the metadata record exist.
+3. Play is unavailable before Ready.
+4. Reloading in the middle of processing continues from task records and does not ask for the file again.
+5. At a paused `currentTime`, the highlighted boxes are exactly the words whose timings contain that time.
+6. Seeking the audio moves the highlight. Clicking a word seeks the audio.
+7. A page turn happens because the next word's page index changed, during continuous audio.
+8. A transcript whose words differ from the page is rejected in the browser, and the spoken fallback is the printed sentence.
+9. Emotion is present on the transcript stored in IndexedDB and is not painted onto the page.
+10. Deleting the audio blob and playing again rebuilds it with a new stateless speak call. The source spans never left IndexedDB.
+11. Two identical complete calls succeed with no server session between them.
