@@ -2,6 +2,8 @@
 
 Status: discussion. This file records the product behavior, the processing and playback design, and a **suggested** stack. Nothing here is an implementation commitment. The stack in [Suggested stack](#11-suggested-stack) is a proposal to react to. Model vendors stay replaceable behind the interfaces in that section.
 
+Discussion thread: https://github.com/manishsharma004/open-book-reader/issues/1
+
 The original request, and where this document answers it:
 
 | Request | Where it is specified |
