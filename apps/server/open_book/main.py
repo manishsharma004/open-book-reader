@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from open_book.forward import approved_completion_base, approved_speech_base, voice_id
+
 BUILD = Path(__file__).resolve().parents[2] / "web" / "build"
 MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
@@ -47,23 +49,8 @@ class CloneBody(BaseModel):
     mime: str = Field(default="audio/mpeg", max_length=80)
 
 
-def vendor_base(url: str) -> str:
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise HTTPException(400, "Base URL must be an http or https URL without a username or password.")
-    return url.strip().rstrip("/")
-
-
-def openai_url(base: str, suffix: str) -> str:
-    root = vendor_base(base)
-    if root.endswith("/v1"):
-        return f"{root}/{suffix}"
-    return f"{root}/v1/{suffix}"
-
-
-def origin_of(base: str) -> str:
-    parsed = urlparse(vendor_base(base))
-    return f"{parsed.scheme}://{parsed.netloc}"
+def openai_url(origin: str, suffix: str) -> str:
+    return f"{origin}/v1/{suffix}"
 
 
 def auth_headers(api_key: str) -> dict[str, str]:
@@ -90,7 +77,7 @@ def health() -> dict[str, object]:
 
 @app.post("/v1/complete")
 def complete(body: CompleteBody) -> dict[str, str]:
-    url = openai_url(body.baseUrl, "chat/completions")
+    url = openai_url(approved_completion_base(body.baseUrl), "chat/completions")
     payload = {
         "model": body.model,
         "messages": [
@@ -181,15 +168,16 @@ def _audio_result(content: bytes, mime: str, words: list[dict[str, object]] | No
 
 @app.post("/v1/speak")
 def speak(body: SpeakBody) -> dict[str, object]:
+    origin = approved_speech_base(body.baseUrl, body.vendor)
     if body.vendor == "elevenlabs":
-        return _speak_elevenlabs(body)
+        return _speak_elevenlabs(body, origin)
     if body.vendor == "kokoro":
-        return _speak_kokoro(body)
-    return _speak_openai(body)
+        return _speak_kokoro(body, origin)
+    return _speak_openai(body, origin)
 
 
-def _speak_openai(body: SpeakBody) -> dict[str, object]:
-    url = openai_url(body.baseUrl, "audio/speech")
+def _speak_openai(body: SpeakBody, origin: str) -> dict[str, object]:
+    url = openai_url(origin, "audio/speech")
     model = body.model or "gpt-4o-mini-tts"
     voice = body.voice or "alloy"
     payload: dict[str, object] = {
@@ -227,8 +215,7 @@ def _speak_openai(body: SpeakBody) -> dict[str, object]:
     return _audio_result(response.content, mime or "audio/mpeg", None, delivery)
 
 
-def _speak_kokoro(body: SpeakBody) -> dict[str, object]:
-    origin = origin_of(body.baseUrl)
+def _speak_kokoro(body: SpeakBody, origin: str) -> dict[str, object]:
     voice = body.voice or "af_heart"
     model = body.model or "kokoro"
     payload: dict[str, object] = {
@@ -260,7 +247,7 @@ def _speak_kokoro(body: SpeakBody) -> dict[str, object]:
                             words,
                             delivery + " Word times came from captioned speech.",
                         )
-            response = client.post(openai_url(body.baseUrl, "audio/speech"), headers=auth_headers(body.apiKey), json=payload)
+            response = client.post(openai_url(origin, "audio/speech"), headers=auth_headers(body.apiKey), json=payload)
     except httpx.RequestError as exc:
         raise HTTPException(502, f"Could not reach {urlparse(origin).netloc}: {exc.__class__.__name__}") from exc
     if response.status_code >= 400:
@@ -268,11 +255,11 @@ def _speak_kokoro(body: SpeakBody) -> dict[str, object]:
     return _audio_result(response.content, "audio/mpeg", None, delivery)
 
 
-def _speak_elevenlabs(body: SpeakBody) -> dict[str, object]:
-    voice = body.voice.strip()
+def _speak_elevenlabs(body: SpeakBody, origin: str) -> dict[str, object]:
+    voice = voice_id(body.voice) if body.voice.strip() else ""
     if not voice:
         raise HTTPException(400, "ElevenLabs needs a voice id. Create one from a sample or paste an existing id.")
-    url = f"{origin_of(body.baseUrl)}/v1/text-to-speech/{voice}/with-timestamps"
+    url = f"{origin}/v1/text-to-speech/{voice}/with-timestamps"
     model = body.model or "eleven_multilingual_v2"
     tags = {
         "whispered": "[whispers] ",
@@ -309,13 +296,14 @@ def clone_voice(body: CloneBody) -> dict[str, str]:
         )
     if not body.apiKey:
         raise HTTPException(400, "ElevenLabs needs an API key to create a voice.")
+    origin = approved_speech_base(body.baseUrl, "elevenlabs")
     try:
         sample = base64.b64decode(body.sampleBase64, validate=True)
     except ValueError as exc:
         raise HTTPException(400, "The voice sample is not valid base64.") from exc
     if len(sample) > 10 * 1024 * 1024:
         raise HTTPException(400, "Voice samples are limited to 10 MB.")
-    url = f"{origin_of(body.baseUrl)}/v1/voices/add"
+    url = f"{origin}/v1/voices/add"
     extension = ".wav" if "wav" in body.mime else ".mp3" if "mpeg" in body.mime or "mp3" in body.mime else ".webm"
     try:
         with httpx.Client(timeout=90, follow_redirects=False) as client:
@@ -330,10 +318,10 @@ def clone_voice(body: CloneBody) -> dict[str, str]:
     if response.status_code >= 400:
         raise vendor_error(response)
     try:
-        voice_id = response.json()["voice_id"]
+        created = response.json()["voice_id"]
     except (KeyError, ValueError) as exc:
         raise HTTPException(502, "ElevenLabs did not return a voice id.") from exc
-    return {"voiceId": str(voice_id)}
+    return {"voiceId": str(created)}
 
 
 class SinglePage(StaticFiles):

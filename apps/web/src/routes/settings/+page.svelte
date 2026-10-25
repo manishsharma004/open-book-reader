@@ -169,7 +169,7 @@
 			<Card.Header>
 				<Card.Title>VLLM</Card.Title>
 				<Card.Description>
-					OpenAI-compatible text host. Ollama's default is `http://127.0.0.1:11434/v1`. Used for emotion when emotion analysis is off and this one is on.
+					Ollama on this machine, port 11434. Completion calls to any other address are refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -200,7 +200,7 @@
 			<Card.Header>
 				<Card.Title>Emotion analysis</Card.Title>
 				<Card.Description>
-					A separate text model that returns clause emotions. Leave it off to use the VLLM host, or pick an emotion in the reader.
+					A separate Ollama model that returns clause emotions. It uses the same forwarding rule as VLLM. Leave it off to use the VLLM host, or pick an emotion in the reader.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -229,7 +229,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro, OpenAI-compatible speech, and ElevenLabs receive emotion directions. ElevenLabs can build a voice from a sample.
+					Browser voice changes pitch and rate for emotion. The server calls Kokoro on this machine at port 8880, api.openai.com, or api.elevenlabs.io. Another speech host has to be listed in SPEECH_ALLOW. ElevenLabs can build a voice from a sample.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
