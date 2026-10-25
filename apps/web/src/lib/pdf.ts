@@ -1,3 +1,4 @@
+import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -27,8 +28,7 @@ export async function openPdf(data: ArrayBuffer, password?: string): Promise<PDF
 export async function pageWords(page: PDFPageProxy): Promise<PageText> {
 	const content = await page.getTextContent();
 	const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
-	const words: PageWord[] = [];
-	let text = '';
+	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h'>> = [];
 
 	for (const item of content.items) {
 		if (!('str' in item) || !item.str) continue;
@@ -38,20 +38,33 @@ export async function pageWords(page: PDFPageProxy): Promise<PageText> {
 		const y0 = item.transform[5];
 		const length = item.str.length || 1;
 		for (const part of segmenter.segment(item.str)) {
-			if (!part.isWordLike) continue;
-			if (text.length > 0) text += ' ';
-			const charStart = text.length;
-			text += part.segment;
-			words.push({
-				text: part.segment,
+			pieces.push({
+				segment: part.segment,
+				isWordLike: part.isWordLike,
 				x: x0 + width * (part.index / length),
 				y: y0,
-				w: width * (part.segment.length / length),
-				h: height,
-				charStart,
-				charEnd: text.length
+				w: width * (Math.max(part.segment.trim().length, 1) / length),
+				h: height
 			});
 		}
+	}
+
+	const words: PageWord[] = [];
+	let text = '';
+	for (const span of spokenWordSpans(pieces)) {
+		if (text.length > 0) text += ' ';
+		const charStart = text.length;
+		text += span.text;
+		const piece = pieces[span.pieceIndex];
+		words.push({
+			text: span.text,
+			x: piece.x,
+			y: piece.y,
+			w: piece.w,
+			h: piece.h,
+			charStart,
+			charEnd: text.length
+		});
 	}
 
 	return { words, text };

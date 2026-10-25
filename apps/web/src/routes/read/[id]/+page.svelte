@@ -51,8 +51,9 @@
 	let dragX = $state(0);
 	let dragAnimate = $state(false);
 	let pageOpacity = $state(1);
+	let deckA = $state<HTMLAudioElement | null>(null);
+	let deckB = $state<HTMLAudioElement | null>(null);
 	let audio = $state<HTMLAudioElement | null>(null);
-	let preload = $state<HTMLAudioElement | null>(null);
 	let waitingClip = $state(-1);
 	let playingClip = -1;
 	let heldClip = -1;
@@ -158,11 +159,35 @@
 		resumeWord = word;
 	}
 
+	function decks() {
+		return [deckA, deckB].filter((node): node is HTMLAudioElement => node != null);
+	}
+
+	function arm(node: HTMLAudioElement | null, url: string | null | undefined) {
+		if (!node || !url || node.dataset.armed === url) return;
+		node.dataset.armed = url;
+		node.preload = 'auto';
+		node.src = url;
+		node.load();
+	}
+
+	function takePlayer(url: string) {
+		if (audio?.dataset.armed === url) return audio;
+		const idle = decks().filter((node) => node !== audio);
+		const ready = idle.find((node) => node.dataset.armed === url && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA);
+		if (ready) return ready;
+		const loading = idle.find((node) => node.dataset.armed === url);
+		if (loading) return loading;
+		const fresh = idle[0] ?? audio;
+		arm(fresh, url);
+		return fresh;
+	}
+
 	function halt() {
 		playToken += 1;
 		stopClock();
 		cancelSpeech();
-		if (audio) audio.pause();
+		for (const node of decks()) node.pause();
 		heldAudioTime = null;
 		heldClip = -1;
 		playingClip = -1;
@@ -184,6 +209,19 @@
 		return onBuffer(() => {
 			bufferTick += 1;
 		});
+	});
+
+	$effect(() => {
+		const speed = rate;
+		if (audio) audio.playbackRate = speed;
+	});
+
+	$effect(() => {
+		bufferTick;
+		const index = playingClip;
+		const upcoming = index >= 0 ? prepared?.clips[index + 1] : undefined;
+		if (!upcoming?.audioUrl) return;
+		arm(decks().find((node) => node !== audio) ?? null, upcoming.audioUrl);
 	});
 
 	$effect(() => {
@@ -587,7 +625,7 @@
 		}
 		const local = fromWord - clip.wordStart;
 		if (local <= 0) {
-			audio.currentTime = 0;
+			if (audio.currentTime > 0) audio.currentTime = 0;
 			return;
 		}
 		const timing = clip.timings?.find((item) => item.wordIndex >= fromWord);
@@ -628,7 +666,7 @@
 	}
 
 	function playClip(index: number, fromWord: number, token: number, continueTime: number | null) {
-		if (!prepared || !audio || !settings) return;
+		if (!prepared || !settings || decks().length === 0) return;
 		const clip = prepared.clips[index];
 		if (!clip) {
 			finishPlayback();
@@ -652,17 +690,20 @@
 		waitingClip = -1;
 		playingClip = index;
 		bufferSpeech(prepared, settings, clip.wordStart, true);
+		const player = takePlayer(clip.audioUrl);
+		if (!player) return;
+		if (audio && audio !== player) audio.pause();
+		audio = player;
 		const next = prepared.clips[index + 1];
-		if (preload && next?.audioUrl) preload.src = next.audioUrl;
-		audio.playbackRate = rate;
-		if (audio.currentSrc !== clip.audioUrl) audio.src = clip.audioUrl;
+		arm(decks().find((node) => node !== player) ?? null, next?.audioUrl);
+		player.playbackRate = rate;
 		const apply = () => {
 			if (token !== playToken) return;
 			placeInClip(clip, fromWord, continueTime);
 		};
-		if (audio.readyState >= 1) apply();
-		else audio.onloadedmetadata = apply;
-		audio.onended = () => {
+		if (player.readyState >= 1) apply();
+		else player.onloadedmetadata = apply;
+		player.onended = () => {
 			if (token !== playToken) return;
 			stopClock();
 			const following = index + 1;
@@ -680,7 +721,7 @@
 			ms: null,
 			detail: `Playing line ${index + 1} of ${prepared.clips.length} at ${rate.toFixed(1)}×. From word ${fromWord + 1}.`
 		});
-		void audio.play().then(() => {
+		void player.play().then(() => {
 			if (token !== playToken) return;
 			followClip(token, clip);
 		}).catch((caught) => {
@@ -713,7 +754,7 @@
 			playClip(clipIndex, fromWord, token, continueTime);
 			return;
 		}
-		if (audio) audio.pause();
+		for (const node of decks()) node.pause();
 		playBrowser(fromWord, token);
 	}
 
@@ -983,6 +1024,6 @@
 			{/if}
 		</div>
 	</footer>
-	<audio bind:this={audio} class="hidden"></audio>
-	<audio bind:this={preload} class="hidden" preload="auto"></audio>
+	<audio bind:this={deckA} data-audio-deck="a" class="hidden" preload="auto"></audio>
+	<audio bind:this={deckB} data-audio-deck="b" class="hidden" preload="auto"></audio>
 </div>
