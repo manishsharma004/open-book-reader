@@ -115,8 +115,7 @@
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Library</h1>
 			<p class="text-muted-foreground mt-1 max-w-xl text-sm">
-				Add a PDF you own. It stays in this browser. Listening uses the browser's preview voice until a
-				speech model is connected.
+				Add a PDF you own. It stays in this browser. Sparse pages are read with OCR, and speech can use the browser voice or a model from Settings.
 			</p>
 		</div>
 		<Button onclick={() => (open = true)}>Add book</Button>
@@ -171,7 +170,7 @@
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>Add a book</Dialog.Title>
-			<Dialog.Description>PDF files with a text layer can be read aloud in this version.</Dialog.Description>
+			<Dialog.Description>PDF files stay in this browser. Pages with little or no text layer are read with OCR.</Dialog.Description>
 		</Dialog.Header>
 		<div class="grid gap-3">
 			<Label for="book-file">PDF</Label>

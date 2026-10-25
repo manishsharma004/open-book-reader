@@ -1,9 +1,14 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '#lib/assets/favicon.svg';
+	import { loadSettings } from '#lib/settings-store.svelte.js';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
+
+	$effect(() => {
+		void loadSettings();
+	});
 </script>
 
 <svelte:head>

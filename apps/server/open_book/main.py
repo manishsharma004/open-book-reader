@@ -1,15 +1,82 @@
-"""App server: static UI and the stateless /v1 API."""
+"""App server: static UI and a stateless vendor proxy."""
 
+import base64
 import shutil
 from pathlib import Path
+from typing import Literal
+from urllib.parse import urlparse
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from starlette.exceptions import HTTPException
+from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 BUILD = Path(__file__).resolve().parents[2] / "web" / "build"
+MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
 app = FastAPI(title="Open Book Reader")
+
+
+class CompleteBody(BaseModel):
+    baseUrl: str = Field(max_length=500)
+    model: str = Field(max_length=200)
+    apiKey: str = Field(default="", max_length=500)
+    system: str = Field(max_length=8000)
+    user: str = Field(max_length=20000)
+
+
+class SpeakBody(BaseModel):
+    vendor: Literal["openai", "kokoro", "elevenlabs"]
+    baseUrl: str = Field(max_length=500)
+    model: str = Field(default="", max_length=200)
+    apiKey: str = Field(default="", max_length=500)
+    voice: str = Field(default="", max_length=200)
+    text: str = Field(max_length=8000)
+    emotion: str = Field(default="neutral", max_length=40)
+    instructions: str = Field(default="", max_length=8000)
+    sampleBase64: str | None = Field(default=None, max_length=14_000_000)
+
+
+class CloneBody(BaseModel):
+    vendor: Literal["openai", "kokoro", "elevenlabs", "browser"]
+    baseUrl: str = Field(max_length=500)
+    apiKey: str = Field(default="", max_length=500)
+    name: str = Field(max_length=80)
+    sampleBase64: str = Field(max_length=14_000_000)
+    mime: str = Field(default="audio/mpeg", max_length=80)
+
+
+def vendor_base(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise HTTPException(400, "Base URL must be an http or https URL without a username or password.")
+    return url.strip().rstrip("/")
+
+
+def openai_url(base: str, suffix: str) -> str:
+    root = vendor_base(base)
+    if root.endswith("/v1"):
+        return f"{root}/{suffix}"
+    return f"{root}/v1/{suffix}"
+
+
+def origin_of(base: str) -> str:
+    parsed = urlparse(vendor_base(base))
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def auth_headers(api_key: str) -> dict[str, str]:
+    headers = {"content-type": "application/json"}
+    if api_key:
+        headers["authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def vendor_error(response: httpx.Response) -> HTTPException:
+    detail = response.text[:500] or f"Vendor returned {response.status_code}"
+    status = response.status_code if 400 <= response.status_code <= 599 else 502
+    return HTTPException(status, detail)
 
 
 @app.get("/v1/health")
@@ -21,11 +88,259 @@ def health() -> dict[str, object]:
     }
 
 
+@app.post("/v1/complete")
+def complete(body: CompleteBody) -> dict[str, str]:
+    url = openai_url(body.baseUrl, "chat/completions")
+    payload = {
+        "model": body.model,
+        "messages": [
+            {"role": "system", "content": body.system},
+            {"role": "user", "content": body.user},
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        with httpx.Client(timeout=60, follow_redirects=False) as client:
+            response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+            if response.status_code == 400:
+                payload.pop("response_format", None)
+                response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    try:
+        message = response.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(502, "The text host returned an unexpected response.") from exc
+    if isinstance(message, list):
+        message = "".join(part.get("text", "") for part in message if isinstance(part, dict))
+    if not isinstance(message, str):
+        raise HTTPException(502, "The text host returned an empty message.")
+    return {"content": message}
+
+
+def _words_from_alignment(payload: dict) -> list[dict[str, object]] | None:
+    alignment = payload.get("alignment")
+    if not isinstance(alignment, dict):
+        return None
+    chars = alignment.get("characters")
+    starts = alignment.get("character_start_times_seconds")
+    ends = alignment.get("character_end_times_seconds")
+    if not isinstance(chars, list) or not isinstance(starts, list) or not isinstance(ends, list):
+        return None
+    words: list[dict[str, object]] = []
+    token = ""
+    start = None
+    end = None
+    for index, char in enumerate(chars):
+        if index >= len(starts) or index >= len(ends) or not isinstance(char, str):
+            continue
+        if char.isspace():
+            if token and start is not None and end is not None:
+                words.append({"text": token, "start": start, "end": end})
+            token = ""
+            start = None
+            end = None
+            continue
+        if start is None:
+            start = starts[index]
+        end = ends[index]
+        token += char
+    if token and start is not None and end is not None:
+        words.append({"text": token, "start": start, "end": end})
+    return words or None
+
+
+def _words_from_list(value: object) -> list[dict[str, object]] | None:
+    if not isinstance(value, list):
+        return None
+    words: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("word", item.get("text", ""))
+        start = item.get("start", item.get("start_time"))
+        end = item.get("end", item.get("end_time"))
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            words.append({"text": str(text), "start": float(start), "end": float(end)})
+    return words or None
+
+
+def _audio_result(content: bytes, mime: str, words: list[dict[str, object]] | None, delivery: str) -> dict[str, object]:
+    if len(content) > MAX_AUDIO_BYTES:
+        raise HTTPException(502, "The speech host returned audio larger than 24 MB.")
+    return {
+        "mime": mime,
+        "audioBase64": base64.b64encode(content).decode("ascii"),
+        "words": words,
+        "delivery": delivery,
+    }
+
+
+@app.post("/v1/speak")
+def speak(body: SpeakBody) -> dict[str, object]:
+    if body.vendor == "elevenlabs":
+        return _speak_elevenlabs(body)
+    if body.vendor == "kokoro":
+        return _speak_kokoro(body)
+    return _speak_openai(body)
+
+
+def _speak_openai(body: SpeakBody) -> dict[str, object]:
+    url = openai_url(body.baseUrl, "audio/speech")
+    model = body.model or "gpt-4o-mini-tts"
+    voice = body.voice or "alloy"
+    payload: dict[str, object] = {
+        "model": model,
+        "input": body.text,
+        "voice": voice,
+        "response_format": "mp3",
+    }
+    delivery = "OpenAI-compatible speech. No emotion field was sent."
+    send_instructions = "gpt" in model or "mini-tts" in model
+    if send_instructions and body.instructions:
+        payload["instructions"] = body.instructions
+        delivery = f"OpenAI instructions for {body.emotion}: {body.instructions[:240]}"
+    if body.sampleBase64:
+        payload["reference_audio"] = body.sampleBase64
+        delivery += " A voice sample was attached as reference_audio."
+    try:
+        with httpx.Client(timeout=90, follow_redirects=False) as client:
+            response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+            if response.status_code == 400 and "instructions" in payload:
+                payload.pop("instructions", None)
+                delivery = "The speech host rejected emotion instructions, so the text was sent without them."
+                response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    mime = response.headers.get("content-type", "audio/mpeg").split(";")[0]
+    if "json" in mime:
+        data = response.json()
+        audio = data.get("audio") or data.get("audio_base64")
+        if not isinstance(audio, str):
+            raise HTTPException(502, "The speech host returned JSON without audio.")
+        return _audio_result(base64.b64decode(audio), "audio/mpeg", _words_from_list(data.get("words") or data.get("timestamps")), delivery)
+    return _audio_result(response.content, mime or "audio/mpeg", None, delivery)
+
+
+def _speak_kokoro(body: SpeakBody) -> dict[str, object]:
+    origin = origin_of(body.baseUrl)
+    voice = body.voice or "af_heart"
+    model = body.model or "kokoro"
+    payload: dict[str, object] = {
+        "model": model,
+        "input": body.text,
+        "voice": voice,
+        "response_format": "mp3",
+    }
+    if body.sampleBase64:
+        payload["reference_audio"] = body.sampleBase64
+    delivery = "Kokoro has no emotion control. The text was sent as written."
+    if body.sampleBase64:
+        delivery += " A voice sample was attached as reference_audio."
+    try:
+        with httpx.Client(timeout=90, follow_redirects=False) as client:
+            captioned = client.post(f"{origin}/dev/captioned_speech", headers=auth_headers(body.apiKey), json=payload)
+            if captioned.status_code < 400:
+                try:
+                    data = captioned.json()
+                except ValueError:
+                    data = None
+                if isinstance(data, dict):
+                    audio = data.get("audio") or data.get("audio_base64")
+                    if isinstance(audio, str):
+                        words = _words_from_list(data.get("timestamps") or data.get("words"))
+                        return _audio_result(
+                            base64.b64decode(audio),
+                            "audio/mpeg",
+                            words,
+                            delivery + " Word times came from captioned speech.",
+                        )
+            response = client.post(openai_url(body.baseUrl, "audio/speech"), headers=auth_headers(body.apiKey), json=payload)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(origin).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    return _audio_result(response.content, "audio/mpeg", None, delivery)
+
+
+def _speak_elevenlabs(body: SpeakBody) -> dict[str, object]:
+    voice = body.voice.strip()
+    if not voice:
+        raise HTTPException(400, "ElevenLabs needs a voice id. Create one from a sample or paste an existing id.")
+    url = f"{origin_of(body.baseUrl)}/v1/text-to-speech/{voice}/with-timestamps"
+    model = body.model or "eleven_multilingual_v2"
+    tags = {
+        "whispered": "[whispers] ",
+        "angry": "[angry] ",
+        "excited": "[excited] ",
+        "somber": "[sorrowful] ",
+        "calm": "[calm] ",
+    }
+    prefix = tags.get(body.emotion, "")
+    payload = {"text": f"{prefix}{body.text}", "model_id": model}
+    headers = {"content-type": "application/json", "xi-api-key": body.apiKey}
+    delivery = f"ElevenLabs model {model}, voice {voice}. Emotion prefix: {prefix.strip() or 'none'}."
+    try:
+        with httpx.Client(timeout=90, follow_redirects=False) as client:
+            response = client.post(url, headers=headers, json=payload)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    try:
+        data = response.json()
+        audio = data["audio_base64"]
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(502, "ElevenLabs returned an unexpected response.") from exc
+    return _audio_result(base64.b64decode(audio), "audio/mpeg", _words_from_alignment(data), delivery)
+
+
+@app.post("/v1/voices/clone")
+def clone_voice(body: CloneBody) -> dict[str, str]:
+    if body.vendor != "elevenlabs":
+        raise HTTPException(
+            400,
+            "Voice cloning on the vendor is implemented for ElevenLabs. The sample stays in this browser for other voices.",
+        )
+    if not body.apiKey:
+        raise HTTPException(400, "ElevenLabs needs an API key to create a voice.")
+    try:
+        sample = base64.b64decode(body.sampleBase64, validate=True)
+    except ValueError as exc:
+        raise HTTPException(400, "The voice sample is not valid base64.") from exc
+    if len(sample) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Voice samples are limited to 10 MB.")
+    url = f"{origin_of(body.baseUrl)}/v1/voices/add"
+    extension = ".wav" if "wav" in body.mime else ".mp3" if "mpeg" in body.mime or "mp3" in body.mime else ".webm"
+    try:
+        with httpx.Client(timeout=90, follow_redirects=False) as client:
+            response = client.post(
+                url,
+                headers={"xi-api-key": body.apiKey},
+                data={"name": body.name or "Open Book Reader"},
+                files={"files": (f"sample{extension}", sample, body.mime or "application/octet-stream")},
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    try:
+        voice_id = response.json()["voice_id"]
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(502, "ElevenLabs did not return a voice id.") from exc
+    return {"voiceId": str(voice_id)}
+
+
 class SinglePage(StaticFiles):
     async def get_response(self, path: str, scope):
         try:
             response = await super().get_response(path, scope)
-        except HTTPException as exc:
+        except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
             response = await super().get_response("index.html", scope)

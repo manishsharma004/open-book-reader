@@ -7,8 +7,60 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
+:root,
+[data-palette='ink'] {
 	--radius: 0.5rem;
+	--background: oklch(0.985 0.004 250);
+	--foreground: oklch(0.28 0.02 255);
+	--card: oklch(0.995 0.002 250);
+	--card-foreground: oklch(0.28 0.02 255);
+	--popover: oklch(0.995 0.002 250);
+	--popover-foreground: oklch(0.28 0.02 255);
+	--primary: oklch(0.42 0.09 255);
+	--primary-foreground: oklch(0.98 0.005 250);
+	--secondary: oklch(0.95 0.008 250);
+	--secondary-foreground: oklch(0.28 0.02 255);
+	--muted: oklch(0.95 0.006 250);
+	--muted-foreground: oklch(0.48 0.02 255);
+	--accent: oklch(0.93 0.02 250);
+	--accent-foreground: oklch(0.28 0.02 255);
+	--destructive: oklch(0.55 0.18 25);
+	--border: oklch(0.9 0.008 250);
+	--input: oklch(0.9 0.008 250);
+	--ring: oklch(0.55 0.08 255);
+	--highlight: oklch(0.82 0.09 255 / 45%);
+	--highlight-line: oklch(0.42 0.1 255);
+	--reading: oklch(0.975 0.006 250);
+	--reading-foreground: oklch(0.25 0.02 255);
+}
+
+.dark,
+.dark[data-palette='ink'] {
+	--background: oklch(0.18 0.012 255);
+	--foreground: oklch(0.94 0.01 250);
+	--card: oklch(0.22 0.014 255);
+	--card-foreground: oklch(0.94 0.01 250);
+	--popover: oklch(0.22 0.014 255);
+	--popover-foreground: oklch(0.94 0.01 250);
+	--primary: oklch(0.78 0.08 240);
+	--primary-foreground: oklch(0.18 0.02 255);
+	--secondary: oklch(0.28 0.015 255);
+	--secondary-foreground: oklch(0.94 0.01 250);
+	--muted: oklch(0.28 0.012 255);
+	--muted-foreground: oklch(0.75 0.015 250);
+	--accent: oklch(0.3 0.02 255);
+	--accent-foreground: oklch(0.94 0.01 250);
+	--destructive: oklch(0.72 0.14 25);
+	--border: oklch(0.34 0.015 255);
+	--input: oklch(0.34 0.015 255);
+	--ring: oklch(0.72 0.08 240);
+	--highlight: oklch(0.75 0.1 240 / 40%);
+	--highlight-line: oklch(0.82 0.08 240);
+	--reading: oklch(0.2 0.014 255);
+	--reading-foreground: oklch(0.93 0.01 250);
+}
+
+[data-palette='lamp'] {
 	--background: oklch(0.97 0.015 95);
 	--foreground: oklch(0.32 0.03 65);
 	--card: oklch(0.985 0.008 95);
@@ -33,7 +85,7 @@
 	--reading-foreground: oklch(0.3 0.03 60);
 }
 
-.dark {
+.dark[data-palette='lamp'] {
 	--background: oklch(0.23 0.015 65);
 	--foreground: oklch(0.93 0.015 95);
 	--card: oklch(0.27 0.015 65);

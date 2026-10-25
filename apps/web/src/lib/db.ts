@@ -12,13 +12,13 @@ export type Book = {
 
 type BlobRecord = {
 	id: string;
-	kind: 'source' | 'cover';
+	kind: 'source' | 'cover' | 'sample';
 	blob: Blob;
 };
 
 type SettingsRecord = {
 	id: 'app';
-	theme: 'day' | 'night' | 'system';
+	[key: string]: unknown;
 };
 
 interface Schema extends DBSchema {
@@ -86,6 +86,22 @@ export async function deleteBook(book: Book) {
 	await tx.objectStore('blobs').delete(book.blobId);
 	if (book.coverId) await tx.objectStore('blobs').delete(book.coverId);
 	await tx.done;
+}
+
+export async function readAppRecord(): Promise<SettingsRecord | undefined> {
+	return (await db()).get('settings', 'app');
+}
+
+export async function writeAppRecord(value: SettingsRecord) {
+	await (await db()).put('settings', value);
+}
+
+export async function putBlob(id: string, kind: BlobRecord['kind'], blob: Blob) {
+	await (await db()).put('blobs', { id, kind, blob });
+}
+
+export async function deleteBlob(id: string) {
+	await (await db()).delete('blobs', id);
 }
 
 export async function sha256(file: Blob): Promise<string> {

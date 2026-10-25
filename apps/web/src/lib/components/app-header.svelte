@@ -2,17 +2,25 @@
 	import { page } from '$app/state';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
-	import { applyTheme, readTheme, type ThemeMode } from '#lib/theme.js';
+	import { settingsState, setPalette, setTheme } from '#lib/settings-store.svelte.js';
+	import { readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
 
 	let mode = $state<ThemeMode>('system');
+	let palette = $state<Palette>('ink');
 
 	$effect(() => {
-		mode = readTheme();
+		mode = settingsState.current?.theme ?? readTheme();
+		palette = settingsState.current?.palette ?? readPalette();
 	});
 
 	function choose(next: ThemeMode) {
 		mode = next;
-		applyTheme(next);
+		void setTheme(next);
+	}
+
+	function choosePalette(next: Palette) {
+		palette = next;
+		void setPalette(next);
 	}
 
 	const label = $derived(mode === 'day' ? 'Day' : mode === 'night' ? 'Night' : 'System');
@@ -30,9 +38,13 @@
 					{label}
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="end">
+					<DropdownMenu.Label>Appearance</DropdownMenu.Label>
 					<DropdownMenu.Item onclick={() => choose('day')}>Day</DropdownMenu.Item>
 					<DropdownMenu.Item onclick={() => choose('night')}>Night</DropdownMenu.Item>
 					<DropdownMenu.Item onclick={() => choose('system')}>System</DropdownMenu.Item>
+					<DropdownMenu.Separator />
+					<DropdownMenu.Item onclick={() => choosePalette('ink')}>Ink {palette === 'ink' ? '· on' : ''}</DropdownMenu.Item>
+					<DropdownMenu.Item onclick={() => choosePalette('lamp')}>Lamp {palette === 'lamp' ? '· on' : ''}</DropdownMenu.Item>
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
 		</nav>

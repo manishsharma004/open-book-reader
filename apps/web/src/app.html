@@ -12,6 +12,8 @@
 						mode === 'night' ||
 						(mode !== 'day' && matchMedia('(prefers-color-scheme: dark)').matches);
 					if (dark) document.documentElement.classList.add('dark');
+					var palette = localStorage.getItem('obr-palette') === 'lamp' ? 'lamp' : 'ink';
+					document.documentElement.setAttribute('data-palette', palette);
 				} catch (e) {}
 			})();
 		</script>
