@@ -10,25 +10,31 @@ export type SpeechResult = {
 	mime: string;
 };
 
-async function postJson(path: string, body: unknown) {
+async function postJson(path: string, body: unknown, signal?: AbortSignal) {
 	const response = await fetch(path, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
+		signal
 	});
+	if (response.status === 499) throw new DOMException('Skipped', 'AbortError');
 	const text = await response.text();
 	if (!response.ok) throw new Error(text.slice(0, 700) || `Request failed (${response.status})`);
 	return JSON.parse(text) as Record<string, unknown>;
 }
 
-export async function complete(endpoint: Endpoint, system: string, user: string) {
-	const payload = await postJson('/v1/complete', {
-		baseUrl: endpoint.baseUrl,
-		model: endpoint.model,
-		apiKey: endpoint.apiKey,
-		system,
-		user
-	});
+export async function complete(endpoint: Endpoint, system: string, user: string, signal?: AbortSignal) {
+	const payload = await postJson(
+		'/v1/complete',
+		{
+			baseUrl: endpoint.baseUrl,
+			model: endpoint.model,
+			apiKey: endpoint.apiKey,
+			system,
+			user
+		},
+		signal
+	);
 	return typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content ?? payload);
 }
 
@@ -39,20 +45,25 @@ export async function speak(
 	instructions: string,
 	sampleBase64: string | null,
 	attachSample: boolean,
-	sampleMime: string | null = null
+	sampleMime: string | null = null,
+	signal?: AbortSignal
 ) {
-	const payload = await postJson('/v1/speak', {
-		vendor: settings.vendor,
-		baseUrl: settings.baseUrl,
-		model: settings.model,
-		apiKey: settings.apiKey,
-		voice: settings.voice,
-		text,
-		emotion,
-		instructions,
-		sampleBase64: attachSample ? sampleBase64 : null,
-		sampleMime: attachSample ? sampleMime || '' : ''
-	});
+	const payload = await postJson(
+		'/v1/speak',
+		{
+			vendor: settings.vendor,
+			baseUrl: settings.baseUrl,
+			model: settings.model,
+			apiKey: settings.apiKey,
+			voice: settings.voice,
+			text,
+			emotion,
+			instructions,
+			sampleBase64: attachSample ? sampleBase64 : null,
+			sampleMime: attachSample ? sampleMime || '' : ''
+		},
+		signal
+	);
 	const audioBase64 = typeof payload.audioBase64 === 'string' ? payload.audioBase64 : '';
 	if (!audioBase64) throw new Error('The speech host returned no audio.');
 	const mime = typeof payload.mime === 'string' ? payload.mime : 'audio/mpeg';

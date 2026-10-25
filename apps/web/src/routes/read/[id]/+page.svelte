@@ -107,13 +107,6 @@
 		return flags;
 	});
 
-	const playBlocked = $derived.by(() => {
-		bufferTick;
-		if (!prepared || !settings || settings.tts.vendor === 'browser' || prepared.clips.length === 0) return false;
-		const clip = prepared.clips[clipIndexForWord(prepared.clips, Math.max(0, resumeWord))];
-		return !clip?.audioUrl;
-	});
-
 	const bufferLabel = $derived.by(() => {
 		bufferTick;
 		if (!settings || !book) return '';
@@ -279,6 +272,8 @@
 				buffering = false;
 				bufferTick += 1;
 				await paint();
+				if (cancelled || gen !== viewGen) return;
+				if (currentSettings.tts.vendor !== 'browser' && page.clips.length > 0) playFrom(0);
 			})
 			.catch((caught) => {
 				if (caught instanceof DOMException && caught.name === 'AbortError') return;
@@ -691,7 +686,12 @@
 		}).catch((caught) => {
 			if (token !== playToken) return;
 			playing = false;
-			error = caught instanceof Error ? caught.message : 'Could not play the audio.';
+			const blocked = caught instanceof DOMException && caught.name === 'NotAllowedError';
+			if (blocked) {
+				voiceNote = 'Press Play to start.';
+				return;
+			}
+			voiceNote = caught instanceof Error ? caught.message : 'Could not play the audio.';
 		});
 	}
 
@@ -879,7 +879,7 @@
 	<footer class="border-border bg-card shrink-0 border-t px-4 py-3">
 		<div class="flex flex-wrap items-center gap-3">
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex - 1)} disabled={pageIndex === 0}>Previous</Button>
-			<Button onclick={toggle} disabled={buffering || words.length === 0 || (!playing && playBlocked)}>{playing ? 'Pause' : 'Play'}</Button>
+			<Button onclick={toggle} disabled={buffering || words.length === 0}>{playing ? 'Pause' : 'Play'}</Button>
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex + 1)} disabled={!book || pageIndex >= book.pageCount - 1}>
 				Next
 			</Button>

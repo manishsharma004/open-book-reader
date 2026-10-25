@@ -18,6 +18,7 @@ http, https, or hf URLs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -26,7 +27,7 @@ import threading
 from pathlib import Path
 from typing import Protocol
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 DEFAULT_LANGUAGE = "english_18m_refl_2026-10"
@@ -37,7 +38,13 @@ logger = logging.getLogger("pocket_service")
 
 
 class Synthesizer(Protocol):
-    def speak(self, text: str, voice_name: str | None, voice_file: Path | None) -> bytes: ...
+    def speak(
+        self,
+        text: str,
+        voice_name: str | None,
+        voice_file: Path | None,
+        stop: threading.Event | None = None,
+    ) -> bytes | None: ...
 
 
 class PocketSynthesizer:
@@ -56,16 +63,34 @@ class PocketSynthesizer:
         self._lock = threading.Lock()
         logger.info("pocket device=%s", self.device)
 
-    def speak(self, text: str, voice_name: str | None, voice_file: Path | None) -> bytes:
+    def speak(
+        self,
+        text: str,
+        voice_name: str | None,
+        voice_file: Path | None,
+        stop: threading.Event | None = None,
+    ) -> bytes | None:
+        import torch
+
         with self._lock:
+            if stop is not None and stop.is_set():
+                return None
             if voice_file is not None:
                 state = self.model.get_state_for_audio_prompt(voice_file, truncate=True)
             elif voice_name:
                 state = self.model.get_state_for_audio_prompt(voice_name)
             else:
                 state = self.default_state
-            audio = self.model.generate_audio(state, text)
-        channel = audio.detach().cpu().float()
+            pieces = []
+            for chunk in self.model.generate_audio_stream(state, text, stop=stop):
+                pieces.append(chunk.detach().cpu().float())
+            if stop is not None and stop.is_set():
+                logger.info("pocket speech stopped")
+                return None
+            if not pieces:
+                raise RuntimeError("Pocket TTS produced no audio.")
+            audio = pieces[0] if len(pieces) == 1 else torch.cat(pieces, dim=0)
+        channel = audio
         if channel.ndim == 2:
             channel = channel[0]
         return wav_from_float([float(sample) for sample in channel.tolist()], int(self.model.sample_rate))
@@ -109,6 +134,28 @@ def wav_from_float(samples: list[float], sample_rate: int) -> bytes:
     return buffer.getvalue()
 
 
+def _synthesize(
+    lock: threading.Lock,
+    synthesizer: Synthesizer,
+    text: str,
+    voice_name: str | None,
+    upload: tuple[str, bytes] | None,
+    stop: threading.Event,
+) -> bytes | None:
+    if upload is not None:
+        suffix, sample = upload
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+            handle.write(sample)
+            path = Path(handle.name)
+        try:
+            with lock:
+                return synthesizer.speak(text, None, path, stop)
+        finally:
+            path.unlink(missing_ok=True)
+    with lock:
+        return synthesizer.speak(text, voice_name, None, stop)
+
+
 def create_app(synthesizer: Synthesizer, language: str = DEFAULT_LANGUAGE) -> FastAPI:
     app = FastAPI(title="Pocket TTS")
     lock = threading.Lock()
@@ -118,7 +165,8 @@ def create_app(synthesizer: Synthesizer, language: str = DEFAULT_LANGUAGE) -> Fa
         return {"status": "healthy", "language": language}
 
     @app.post("/tts")
-    def text_to_speech(
+    async def text_to_speech(
+        request: Request,
         text: str = Form(...),
         voice_url: str | None = Form(None),
         voice_wav: UploadFile | None = File(None),
@@ -138,25 +186,32 @@ def create_app(synthesizer: Synthesizer, language: str = DEFAULT_LANGUAGE) -> Fa
             "name" if name else "default",
             len(upload[1]) if upload else 0,
         )
+        stop = threading.Event()
+
+        async def watch() -> None:
+            try:
+                while True:
+                    message = await request.receive()
+                    if message.get("type") == "http.disconnect":
+                        logger.info("pocket speech aborted")
+                        stop.set()
+                        return
+            except asyncio.CancelledError:
+                return
+
+        watcher = asyncio.create_task(watch())
         try:
-            if upload is not None:
-                suffix, sample = upload
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
-                    handle.write(sample)
-                    path = Path(handle.name)
-                try:
-                    with lock:
-                        wav = synthesizer.speak(spoken, None, path)
-                finally:
-                    path.unlink(missing_ok=True)
-            else:
-                with lock:
-                    wav = synthesizer.speak(spoken, name, None)
+            wav = await asyncio.to_thread(_synthesize, lock, synthesizer, spoken, name, upload, stop)
         except HTTPException:
             raise
         except Exception:
             logger.exception("pocket synthesis failed")
             raise HTTPException(500, "Pocket TTS could not synthesize that request.") from None
+        finally:
+            stop.set()
+            watcher.cancel()
+        if not wav:
+            return Response(status_code=499)
         if not wav.startswith(b"RIFF"):
             raise HTTPException(500, "Pocket TTS returned audio that is not a wav.")
         return Response(content=wav, media_type="audio/wav")

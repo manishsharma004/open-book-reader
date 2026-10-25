@@ -1,12 +1,15 @@
 """App server: static UI and a stateless vendor proxy."""
 
+import asyncio
 import base64
 import shutil
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
@@ -96,8 +99,93 @@ def health(request: Request) -> dict[str, object]:
     }
 
 
-@app.post("/v1/complete")
-def complete(body: CompleteBody, request: Request) -> dict[str, str]:
+class _SocketBackend(httpcore.NetworkBackend):
+    """httpcore backend that keeps the sockets so a dropped browser can shut them down.
+
+    ``Client.close()`` takes the pool lock the request thread already holds, so it
+    does not interrupt a read. Shutting the socket down does.
+    """
+
+    def __init__(self) -> None:
+        self._inner = httpcore.SyncBackend()
+        self.sockets: list[socket.socket] = []
+
+    def connect_tcp(self, host: str, port: int, timeout: float | None = None, local_address: str | None = None, socket_options=None):
+        stream = self._inner.connect_tcp(host, port, timeout=timeout, local_address=local_address, socket_options=socket_options)
+        sock = stream.get_extra_info("socket")
+        if isinstance(sock, socket.socket):
+            self.sockets.append(sock)
+        return stream
+
+    def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options=None):
+        return self._inner.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
+
+    def sleep(self, seconds: float) -> None:
+        self._inner.sleep(seconds)
+
+
+def _open_speech_client(timeout: float) -> httpx.Client:
+    backend = _SocketBackend()
+    transport = httpx.HTTPTransport()
+    transport._pool._network_backend = backend  # type: ignore[attr-defined]
+    client = httpx.Client(timeout=timeout, follow_redirects=False, transport=transport)
+    client._abort_backend = backend  # type: ignore[attr-defined]
+    return client
+
+
+def _close_client(client: object) -> None:
+    backend = getattr(client, "_abort_backend", None)
+    for sock in list(getattr(backend, "sockets", ())):
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        logger.debug("upstream close failed", exc_info=True)
+
+
+async def _call_until_disconnect(request: Request, client: object, call):
+    """Run a blocking vendor call. Close it when the browser leaves.
+
+    A cancelled poll of ``is_disconnected`` misses a socket that closes after
+    the body has been read. Waiting on the next ASGI message sees that close.
+    """
+    posted = asyncio.create_task(asyncio.to_thread(call))
+    disconnected = False
+
+    async def watch() -> None:
+        nonlocal disconnected
+        try:
+            while True:
+                message = await request.receive()
+                if message.get("type") == "http.disconnect":
+                    disconnected = True
+                    logger.info("upstream aborted route=%s", request.url.path)
+                    _close_client(client)
+                    return
+        except asyncio.CancelledError:
+            return
+
+    watcher = asyncio.create_task(watch())
+    try:
+        try:
+            return await posted
+        except httpx.RequestError:
+            if disconnected:
+                return None
+            raise
+    finally:
+        watcher.cancel()
+        _close_client(client)
+
+
+@app.post("/v1/complete", response_model=None)
+async def complete(body: CompleteBody, request: Request) -> dict[str, str] | Response:
     note_vendor(request, "ollama")
     url = openai_url(approved_completion_base(body.baseUrl), "chat/completions")
     payload = {
@@ -109,14 +197,21 @@ def complete(body: CompleteBody, request: Request) -> dict[str, str]:
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
     }
-    try:
-        with httpx.Client(timeout=60, follow_redirects=False) as client:
+    client = _open_speech_client(60)
+
+    def run():
+        response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+        if response.status_code == 400:
+            payload.pop("response_format", None)
             response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
-            if response.status_code == 400:
-                payload.pop("response_format", None)
-                response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+        return response
+
+    try:
+        response = await _call_until_disconnect(request, client, run)
     except httpx.RequestError as exc:
         raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response is None:
+        return Response(status_code=499)
     if response.status_code >= 400:
         raise vendor_error(response)
     try:
@@ -188,17 +283,17 @@ def _audio_result(content: bytes, mime: str, words: list[dict[str, object]] | No
     }
 
 
-@app.post("/v1/speak")
-def speak(body: SpeakBody, request: Request) -> dict[str, object]:
+@app.post("/v1/speak", response_model=None)
+async def speak(body: SpeakBody, request: Request) -> dict[str, object] | Response:
     note_vendor(request, body.vendor)
     origin = approved_speech_base(body.baseUrl, body.vendor)
     if body.vendor == "elevenlabs":
-        return _speak_elevenlabs(body, origin)
+        return await asyncio.to_thread(_speak_elevenlabs, body, origin)
     if body.vendor == "kokoro":
-        return _speak_kokoro(body, origin)
+        return await asyncio.to_thread(_speak_kokoro, body, origin)
     if body.vendor == "pocket":
-        return _speak_pocket(body, origin)
-    return _speak_openai(body, origin)
+        return await _speak_pocket(body, origin, request)
+    return await asyncio.to_thread(_speak_openai, body, origin)
 
 
 def _speak_openai(body: SpeakBody, origin: str) -> dict[str, object]:
@@ -320,7 +415,7 @@ def _sample_type(mime: str) -> str:
     return "application/octet-stream"
 
 
-def _speak_pocket(body: SpeakBody, origin: str) -> dict[str, object]:
+async def _speak_pocket(body: SpeakBody, origin: str, request: Request) -> dict[str, object] | Response:
     """POST the official Pocket form. A sample is voice_wav. A builtin name is voice_url."""
     url = f"{origin}/tts"
     form: dict[str, str] = {"text": body.text}
@@ -337,11 +432,13 @@ def _speak_pocket(body: SpeakBody, origin: str) -> dict[str, object]:
             delivery = f"Pocket TTS voice {voice}. No emotion control and no word times."
         else:
             delivery = "Pocket TTS default voice. No emotion control and no word times."
+    client = _open_speech_client(90)
     try:
-        with httpx.Client(timeout=90, follow_redirects=False) as client:
-            response = client.post(url, data=form, files=files)
+        response = await _call_until_disconnect(request, client, lambda: client.post(url, data=form, files=files))
     except httpx.RequestError as exc:
         raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response is None:
+        return Response(status_code=499)
     if response.status_code >= 400:
         raise vendor_error(response)
     mime = response.headers.get("content-type", "audio/wav").split(";")[0].strip().lower()
