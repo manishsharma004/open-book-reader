@@ -162,6 +162,15 @@
 					</select>
 				</div>
 				<div class="grid gap-1.5">
+					<Label for="speech-pace">Pace</Label>
+					<select id="speech-pace" class={field} bind:value={settings.speechPace}>
+						{#each [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48] as pace (pace)}
+							<option value={pace}>{pace} words</option>
+						{/each}
+					</select>
+					<p class="text-muted-foreground text-xs">Clips end on a full stop and pack up to this many words. A longer sentence stays one clip. The player has the same control.</p>
+				</div>
+				<div class="grid gap-1.5">
 					<Label for="lookahead">Pages prepared ahead</Label>
 					<select id="lookahead" class={field} bind:value={settings.lookahead}>
 						<option value={2}>2 pages ahead</option>
