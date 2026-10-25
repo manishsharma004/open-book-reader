@@ -16,6 +16,8 @@ This file covers:
 
 Vendor choice is a browser setting, not server configuration. One document in the `settings` store holds every connection. Batch analysis, transcripts, speech, and timing all read it, and each call sends the part it needs. The proxy keeps no copy.
 
+The reader settings screen keeps three hosts separate: VLLM (OpenAI-compatible text), emotion analysis (a text model that returns clause emotions), and TTS (browser, Kokoro, OpenAI-compatible speech, or ElevenLabs). The browser calls `POST /v1/complete`, `POST /v1/speak`, and `POST /v1/voices/clone`. Each body includes that call's base URL, model, and key. The proxy checks that the base URL is `http` or `https` with no userinfo, does not follow redirects, and does not log the body. ElevenLabs is the vendor that creates a voice id from a sample. Other hosts keep the sample in the browser and can receive it as reference audio when the reader turns that on. The browser voice does not call the proxy; it changes pitch, rate, and volume for the chosen emotion and says so.
+
 ```json
 {
   "schema": 2,
