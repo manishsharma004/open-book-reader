@@ -19,5 +19,5 @@ Authenticate to GitHub with the token in `$GITHUB_TOKEN_FILE`. Do not print the 
 
 These constraints are already decided in `specs/discussion/DESIGN.md`. Keep them when you edit the design.
 
-- Book data, embeddings, analysis results, audio, playback position, and task state stay in the browser, in IndexedDB. File and audio bytes are Blob values.
-- The backend for transcription, analysis, and completion is stateless. It does not store the book.
+- Book data, embeddings, analysis results, audio, playback position, task state, and vendor settings stay in the browser, in IndexedDB. File and audio bytes are Blob values.
+- The backend for transcription, analysis, and completion is a stateless proxy. It does not store the book or the settings. Each request includes the provider profile, and the proxy forwards it to that profile's base URL so the browser does not call the vendor directly.

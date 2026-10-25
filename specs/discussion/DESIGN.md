@@ -2,8 +2,9 @@
 
 Status: discussion. This file records the product behavior, the processing and playback design, and a **suggested** stack. Library and model choices are a proposal. Two architecture rules are constraints:
 
-- The browser is the system of record. Book bytes, page and word geometry, chapters, spans, metadata, embeddings, transcripts, audio, playback position, and task state live in IndexedDB. Blob values hold the file and audio bytes.
-- The backend that runs transcription, analysis, and completion is stateless. A request carries everything that call needs. The response is the whole result. The server stores none of the book.
+- The browser is the system of record. Book bytes, page and word geometry, chapters, spans, metadata, embeddings, transcripts, audio, playback position, task state, and vendor settings live in IndexedDB. Blob values hold the file and audio bytes.
+- The backend that runs transcription, analysis, and completion is a stateless proxy. A request carries the payload and the provider profile. The response is the whole result. The server stores none of the book and none of the settings.
+- The browser does not call a vendor origin itself. The proxy forwards to the profile's base URL so a local or remote model host does not have to speak CORS.
 
 Discussion thread: https://github.com/manishsharma004/open-book-reader/issues/1
 
@@ -22,6 +23,7 @@ The original request, and where this document answers it:
 | Page text highlights in sync with the audio clock | [Highlight sync](#75-highlight-sync) |
 | Data, embeddings, and analysis stay in the browser | [Where work runs](#4-where-work-runs) and [IndexedDB](#5-indexeddb-storage-and-task-state) |
 | Transcription, analysis, and completion run on a stateless backend | [Stateless model API](#43-stateless-model-api) |
+| Vendor settings, including a remote model URL, stay in the browser and are sent on each call | [Connection settings](#55-connection-settings) |
 
 ## 1. Product
 
@@ -103,19 +105,19 @@ flowchart LR
   reader[Reader]
   app[Browser app]
   workers[In-browser workers]
-  idb[("IndexedDB records and blobs")]
-  api[Stateless model API]
-  models[Vendor models]
+  idb[("IndexedDB records, blobs, settings")]
+  proxy[Stateless proxy]
+  vendor[Vendor at the profile URL]
 
   reader --> app
   app --> workers
   app --> idb
   workers --> idb
-  app --> api
-  api --> models
+  app --> proxy
+  proxy --> vendor
 ```
 
-The browser never sends the book as a stored object. Workers and the page write IndexedDB. The stateless API is a pure function from one request body to one response body.
+The browser never sends the book as a stored object. Workers and the page write IndexedDB. Each model call reads the assigned provider profile from IndexedDB and sends it with the payload. The proxy forwards that one request to `baseUrl` and drops both the profile and the body when the response is sent.
 
 ### 4.1 In the browser
 
@@ -125,7 +127,8 @@ The browser never sends the book as a stored object. Workers and the page write 
 - Span building and hyphenation joining.
 - Embeddings of spans and headings, and nearest-neighbor retrieval over those vectors.
 - The task queue and the book-version state machine.
-- Playback position, voice settings, and the highlight clock.
+- Playback position, reading settings, and the highlight clock.
+- Provider profiles: base URL, model, API key, and the vendor's optional fields. Export and import of that settings document.
 - Validation that a returned transcript still matches the printed words.
 - Rendering the PDF and drawing highlight rectangles.
 
@@ -135,7 +138,7 @@ The browser never sends the book as a stored object. Workers and the page write 
 - Speech synthesis from a transcript.
 - Optional alignment, when the speech response has no word timings: audio bytes and the known transcript in, timings out.
 
-Each of these is one request. The process may call a vendor. It writes no database row, no object, and no session. A second instance of the service can serve the next request. There is no affinity to a previous call.
+Each of these is one request. The process forwards it to the vendor described in that request. It writes no database row, no object, no session, and no copy of the provider profile. A second instance of the service can serve the next request. There is no affinity to a previous call.
 
 ### 4.3 Stateless model API
 
@@ -143,19 +146,25 @@ Suggested routes, so the constraint is concrete:
 
 | Route | Request | Response |
 | --- | --- | --- |
-| `POST /v1/complete` | `kind` (`chapters`, `metadata`, or `transcript`), the text payload, and the response schema name | JSON matching that schema |
-| `POST /v1/speak` | transcript, voice, style | audio bytes, media type, duration, optional word timings |
-| `POST /v1/align` | audio bytes plus the transcript text | word timings |
+| `POST /v1/complete` | `provider` profile, `kind` (`chapters`, `metadata`, or `transcript`), the text payload, and the response schema name | JSON matching that schema |
+| `POST /v1/speak` | `provider` profile, transcript, voice, style | audio bytes, media type, duration, optional word timings |
+| `POST /v1/align` | `provider` profile, audio bytes, and the transcript text | word timings |
+| `POST /v1/probe` | `provider` profile only | whether that host accepted the profile, plus the error text when it did not |
 
 Rules for every route:
 
-- The server can handle the request without reading anything it saved earlier.
+- The server can handle the request without reading anything it saved earlier. The provider profile in the body is the whole vendor configuration for that call.
 - A book id, if the client sends one, is ignored. It is not a key.
-- Bodies are not written to application logs.
+- Bodies are not written to application logs. That includes `apiKey`, `proxyToken`, and extra headers.
 - Temporary files for a single request, if a vendor SDK needs them, are deleted before the response is finished.
 - Repeating the same request is a new computation. The browser dedupes with its own cache key before calling.
+- The browser calls `proxyBaseUrl` from settings. It does not call `provider.baseUrl`. The proxy is what avoids CORS on Ollama, LM Studio, llama.cpp, vLLM, and hosted vendors.
 
-Vendor API keys live only on this service. The browser receives results, not keys.
+The proxy adds `Access-Control-Allow-Origin` for the app origins in its own `CORS_ORIGINS` list, and it answers `OPTIONS`. That list is deployment configuration of the proxy, not a per-book setting. A vendor on another host does not need to allow the app origin.
+
+`proxyBaseUrl` must be a host that can open a connection to `provider.baseUrl`. A proxy on the public internet cannot reach the reader's `localhost` or, typically, their LAN. A remote Ollama at `http://192.168.1.40:11434/v1` needs a proxy on a machine that can route to `192.168.1.40`. The profile stores the vendor URL. The settings document stores the proxy URL separately.
+
+The proxy forwards only to the URL in the request, does not follow redirects onto another host, and applies the profile's `timeoutMs`. A personal proxy may allow any URL the request names. A proxy exposed beyond the reader's own machines should set an allowlist of hosts. That allowlist is proxy deployment configuration. It is not stored in the book.
 
 ## 5. IndexedDB storage and task state
 
@@ -180,6 +189,7 @@ A Web Lock named for the book version keeps a single tab as the writer for that 
 | `segments` | segment id | utterance span ids, duration, timing quality, blob id |
 | `tasks` | task id | version id, kind, status, input ref, heartbeat, error |
 | `sessions` | session id | version id, position, rate, voice, style |
+| `settings` | `app` | the one connection-settings document in [Connection settings](#55-connection-settings) |
 | `blobs` | blob id | kind, media type, and a Blob |
 
 Words live on the page record that produced them. A page is the unit of extraction and of drawing. Spans point at word ids on those pages. This keeps a 400-page book as hundreds of page records rather than one document.
@@ -241,6 +251,73 @@ What they are for:
 A span's embedding is an input to Ready in the degraded sense below: the embed tasks should finish. If the embedding model cannot load, those tasks are marked skipped with a warning, retrieval context falls back to the previous and next spans, and Ready is still allowed. An embed task left `running` or `failed` without that explicit skip does block Ready.
 
 Vectors are `Float32Array` values in IndexedDB, not strings of numbers inside the span record.
+
+### 5.5 Connection settings
+
+Vendor choice is a browser setting, not an environment variable on the proxy. Analysis, transcription, speech, and alignment all read this one document and send the assigned profile on each call. Sharing the settings document shares the vendor configuration. There is no second copy on the server.
+
+The document has three parts:
+
+- `proxyBaseUrl`, where the stateless proxy is. Required before any model call.
+- `proxyToken`, optional. When set, the browser sends it as `Authorization: Bearer` to the proxy only. The vendor key is a different field and is forwarded only to the vendor.
+- `profiles`, named provider profiles, and `assignments` of which profile is used for `completion`, `speech`, and `align`.
+
+`completion` covers chapter proposals, metadata, and the speech transcript. `speech` covers `/v1/speak`. `align` covers `/v1/align`. An empty speech or align assignment means that call uses the completion profile. The call fails in the browser, before the request, when the chosen profile is missing a field that vendor requires.
+
+```json
+{
+  "proxyBaseUrl": "http://127.0.0.1:8787",
+  "proxyToken": null,
+  "profiles": [
+    {
+      "id": "p_ollama_lan",
+      "name": "Ollama on the LAN",
+      "vendor": "ollama",
+      "baseUrl": "http://192.168.1.40:11434/v1",
+      "model": "llama3.1:8b",
+      "apiKey": null,
+      "timeoutMs": 120000
+    }
+  ],
+  "assignments": {
+    "completion": "p_ollama_lan",
+    "speech": null,
+    "align": null
+  }
+}
+```
+
+`baseUrl` is the client base URL from that vendor's docs, not a path that already ends in `/chat/completions` or `:generateContent`. For a model on another machine this value is required and is how the proxy finds the host. `http://127.0.0.1:11434/v1` is only the usual Ollama default when the server is on the same machine as the proxy.
+
+Export writes this JSON to a file the reader can move to another browser. Import replaces `profiles` and `assignments`. It keeps the local `proxyBaseUrl` and `proxyToken` unless the reader asks to replace those too, because the proxy that can reach a LAN model is often different on each machine. The export contains API keys. The settings screen says that before writing the file.
+
+Changing the assigned completion or speech profile changes the audio and transcript cache key, which becomes `(book_version_id, utterance_span_ids, voice_id, style_id, transcript_hash, profile_id, model)`.
+
+A probe action sends the profile to `POST /v1/probe` and shows the vendor's acceptance or error. Probe does not write book data.
+
+Fields below are the connection settings, checked against current vendor docs. Request sampling knobs such as temperature stay out of this document. They are per call, not part of the shared vendor setup.
+
+Every profile also has the local fields `id` and `name`, and the optional fields `timeoutMs` (default 120000) and `extraHeaders` (a string map copied onto the vendor request after the vendor's own headers). `extraHeaders` cannot replace `Authorization`, `api-key`, `x-api-key`, or `x-goog-api-key`. Those come only from the fields below, so a shared file cannot smuggle a second credential under another name without it being visible as `apiKey`.
+
+| Vendor | `baseUrl` | `apiKey` | `model` | Other required | Optional |
+| --- | --- | --- | --- | --- | --- |
+| `openai` | Default `https://api.openai.com/v1`. Stored explicitly. Override for a gateway. | Required. Sent as `Authorization: Bearer`. | Required. | | `organization` as `OpenAI-Organization`. `project` as `OpenAI-Project`. Needed when the key can see more than one organization or when a legacy user key must name a project. |
+| `azure-openai` | Required. v1 form `https://{resource}.openai.azure.com/openai/v1/`. | Required. | Required. On the v1 API this is the deployment name. | | `authStyle`: `api-key` (default, header `api-key`) or `bearer`. `apiVersion`: set only for the legacy shape. When set, the proxy calls `/openai/deployments/{model}/chat/completions?api-version={apiVersion}` on the resource origin instead of the v1 base. |
+| `anthropic` | Default `https://api.anthropic.com`. | Required. Sent as `Authorization: Bearer`. The proxy also accepts sending it as `x-api-key` when `authStyle` is `x-api-key`. | Required. | `anthropicVersion`, sent as `anthropic-version`. The form starts at `2026-10-21` and the value is stored so a later version is a setting change. | `workspaceId` as `anthropic-workspace-id`, required by Anthropic when the key is not already scoped to one workspace. `anthropicBeta` as `anthropic-beta`. |
+| `gemini` | Default `https://generativelanguage.googleapis.com/v1beta` for native generateContent. | Required. Sent as `x-goog-api-key`. | Required. | | `wire`: `native` (default) or `openai`. `openai` uses base `https://generativelanguage.googleapis.com/v1beta/openai/` and the same key. |
+| `groq` | Default `https://api.groq.com/openai/v1`. | Required. Bearer. | Required. | | |
+| `openrouter` | Default `https://openrouter.ai/api/v1`. | Required. Bearer. | Required. Provider model id, such as `vendor/model`. | | `httpReferer` as `HTTP-Referer`. `appTitle` as `X-Title`. OpenRouter uses both for attribution. The call works without them. |
+| `mistral` | Default `https://api.mistral.ai/v1`. | Required. Bearer. | Required. | | |
+| `deepseek` | Default `https://api.deepseek.com/v1`. | Required. Bearer. | Required. | | |
+| `xai` | Default `https://api.x.ai/v1`. | Required. Bearer. | Required. | | |
+| `together` | Default `https://api.together.xyz/v1`. | Required. Bearer. | Required. | | |
+| `fireworks` | Default `https://api.fireworks.ai/inference/v1`. | Required. Bearer. | Required. | | |
+| `ollama` | Required. Local server `http://127.0.0.1:11434/v1`. Another host `http://{host}:11434/v1`. Cloud `https://ollama.com/v1`. | Optional for a local or LAN server, which ignores it. Required for `https://ollama.com`, sent as Bearer. | Required. The model name as Ollama lists it. | | |
+| `openai-compatible` | Required. This is the remote URL for LM Studio (`http://{host}:1234/v1`), llama.cpp server (`http://{host}:8080/v1`), vLLM (`http://{host}:8000/v1`), and any other OpenAI-compatible host. | Optional. Omit it when the server does not check a key. When present, Bearer. | Required. The id that host reports. | | |
+
+`groq`, `openrouter`, `mistral`, `deepseek`, `xai`, `together`, `fireworks`, `ollama`, and `openai-compatible` use the OpenAI chat-completions request on `{baseUrl}/chat/completions`. `openai` and `azure-openai` in v1 mode use that same shape. `anthropic` uses `{baseUrl}/v1/messages`. `gemini` in native mode uses `{baseUrl}/models/{model}:generateContent`.
+
+Speech uses the profile assigned to `speech`. When that vendor has an OpenAI-compatible speech API, the same profile shape is enough and `model` is the speech model. A vendor that is not in the table is still `openai-compatible` plus a `baseUrl`. Adding a new named vendor is a new row in this table, not a new place to store credentials.
 
 ## 6. Batch processing
 
@@ -415,11 +492,11 @@ When play starts, or when the reader jumps, the browser prepares a **lookahead w
 Preparation for a span:
 
 1. Load the span's source text and word ids from IndexedDB.
-2. Load context locally: the previous span's transcript, the next span's source text, the chapter summary, the people and pronunciation sheet, the reader settings, and a few spans retrieved by embedding similarity. The retrieval result is a short list of texts. The vectors stay put.
-3. Call `POST /v1/complete` with `kind: transcript` and that payload. The response is a speech transcript that must obey the schema in the next section.
+2. Load context locally: the previous span's transcript, the next span's source text, the chapter summary, the people and pronunciation sheet, the reading settings, the assigned provider profiles, and a few spans retrieved by embedding similarity. The retrieval result is a short list of texts. The vectors stay put.
+3. Call `POST /v1/complete` on `proxyBaseUrl` with the completion profile and `kind: transcript`. The response is a speech transcript that must obey the schema in the next section.
 4. Validate alignment in the browser. On failure, keep the source text as a single clause with emotion `neutral` and the original punctuation.
-5. Call `POST /v1/speak` for a group of validated transcripts (an **utterance**). If timings are missing, call `POST /v1/align` with the audio bytes just received and the transcript text.
-6. Store the transcript, the audio blob, and the word timings in IndexedDB. The cache key is `(book_version_id, utterance_span_ids, voice_id, style_id, transcript_hash)`.
+5. Call `POST /v1/speak` with the speech profile for a group of validated transcripts (an **utterance**). If timings are missing, call `POST /v1/align` with the align profile, the audio bytes just received, and the transcript text.
+6. Store the transcript, the audio blob, and the word timings in IndexedDB. The cache key is `(book_version_id, utterance_span_ids, voice_id, style_id, transcript_hash, profile_id, model)`.
 
 A jump cancels lookahead fetches that are no longer near the new position. Cached audio for the destination is reused from IndexedDB. The server cannot cancel work it does not track; the browser simply ignores a response whose cache key is no longer in the window.
 
@@ -430,21 +507,21 @@ sequenceDiagram
   participant Reader
   participant App
   participant IDB as IndexedDB
-  participant API as Stateless API
+  participant Proxy as Stateless proxy
+  participant Vendor as Vendor host
   Reader->>App: Play or jump
-  App->>IDB: Load window, settings, retrieved snippets
-  App->>API: POST /v1/complete transcript payload
-  API-->>App: Transcript JSON
+  App->>IDB: Load window and the assigned provider profile
+  App->>Proxy: POST /v1/complete with profile and payload
+  Proxy->>Vendor: Forward to the profile baseUrl
+  Vendor-->>Proxy: Vendor JSON
+  Proxy-->>App: Transcript JSON
   App->>App: Reject transcripts that do not align
-  App->>API: POST /v1/speak
-  API-->>App: Audio bytes and word times
+  App->>Proxy: POST /v1/speak with the speech profile
+  Proxy->>Vendor: Forward the speech request
+  Vendor-->>Proxy: Audio bytes
+  Proxy-->>App: Audio bytes and word times
   App->>IDB: Store transcript and audio blob
   App->>Reader: Start audio and highlight the first word
-  par While the utterance plays
-    App->>App: Map currentTime to a word box
-    App->>API: Complete and speak the next window
-    App->>IDB: Store the next blob
-  end
 ```
 
 The realtime call sees a window the browser assembled, not the whole book. The batch pass already stored the book-level picture locally. Sending the entire book on every sentence is out of scope for this design.
@@ -639,6 +716,7 @@ erDiagram
 - **SpeechTranscript, AudioSegment, AudioBlob, WordTiming.** Cache. Safe to delete; playback can rebuild them with stateless calls.
 - **Task.** The resume record for processing.
 - **PlaybackSession.** Version id, segment id, offset, rate, voice, style.
+- **Settings.** The single connection-settings document: proxy URL, proxy token, profiles, and role assignments. Not tied to a book version.
 
 Ids are opaque strings minted in the browser. Page numbers are attributes, not identities, because a reprocess can change them. Sessions point at a version so identities stay stable for the life of that version.
 
@@ -650,7 +728,9 @@ Ids are opaque strings minted in the browser. Page numbers are attributes, not i
 | Tab closed mid-pipeline | Tasks already `done` stay done. Stale `running` tasks return to `queued` on the next open. |
 | One OCR page fails | That page is unreadable. Other pages continue. The listening path shows a short marker and moves to the next spoken span. |
 | Chapter model returns a boundary with no word id | Boundary is dropped. If nothing remains, the book is one chapter titled with the book title, and a warning is stored. |
-| Completion call fails | The task returns to `queued` with the error. The version is not Ready. Spans already built stay in IndexedDB. The retry sends the payload again. |
+| Completion call fails | The task returns to `queued` with the error. The version is not Ready. Spans already built stay in IndexedDB. The retry sends the payload and the current profile again. |
+| Required profile field missing | The browser does not call the proxy. The task stays `queued` and the settings screen names the field. The book version is not marked corrupt. |
+| Proxy cannot reach `baseUrl` | The task returns to `queued` with the connection error. A wrong LAN address is fixed in settings, then the same task runs again. |
 | Embedding model cannot load | Embed tasks are marked skipped with a warning. Retrieval uses neighbor spans only. Ready is still allowed. |
 | Transcript fails alignment | Fallback clause: original span text, neutral emotion. Highlight still has word ids. |
 | Speech or align call errors | Preparing state, then a retry. The player does not skip the span. |
@@ -674,18 +754,21 @@ A stateless call still sends some text off the device, and only that:
 - Speech synthesis sends the transcript, which is the printed words plus emotion.
 - An opted-in vision retry sends one page image.
 - Align sends one utterance's audio and its transcript.
+- Every one of those calls also sends the assigned provider profile, including `baseUrl` and `apiKey` when the profile has one.
 
-The embedding index, the source PDF, the page word store, playback position, and cached audio are not uploaded as data to keep. The speak and align calls contain audio only for the duration of that request.
+The embedding index, the source PDF, the page word store, playback position, and cached audio are not uploaded as data to keep. The speak and align calls contain audio only for the duration of that request. The proxy does not keep the profile.
 
-The browser does not receive vendor API keys. Server logs omit request and response bodies.
+API keys live in the browser settings document. They are sent to the proxy, which forwards them to the vendor and does not log them. An exported settings file contains the same keys. Server logs omit request and response bodies.
 
 Caches (transcripts, audio blobs) are derived data in IndexedDB and can be deleted without deleting the book version. The server has nothing corresponding to delete.
 
-If even those request bodies are unacceptable, the same browser interfaces can call a local model instead of `/v1/complete` and `/v1/speak`. Emotion quality has to be judged again on that path. The storage design does not change.
+A model running on the reader's own host, or on another machine they can reach, uses the same settings. The profile's `baseUrl` points at that host, and the proxy forwards there. Emotion quality still depends on the model behind that URL. The storage design does not change.
 
 ## 11. Settings that change output
 
-Stored on the playback session in IndexedDB, and part of the audio cache key when they change the sound:
+Connection settings are the vendor profiles in [Connection settings](#55-connection-settings). They are shared by completion, speech, and alignment, stored once in IndexedDB, and sent on each proxy call.
+
+Reading settings are stored on the playback session in IndexedDB, and they are part of the audio cache key when they change the sound:
 
 - voice
 - emotional intensity: `subtle` (bias emotions toward `calm` / `neutral` unless the transcript says `whispered` or `angry`) or `full` (use the transcript emotion as returned)
@@ -727,18 +810,19 @@ Local development runs the web app and the model API. It does not run PostgreSQL
 | Scanned PDF | PDF.js render to a bitmap, then tesseract.js | OCR stays in the browser |
 | Embeddings | transformers.js, MiniLM-class, in a worker | Vectors are computed and stored locally |
 | EPUB, camera images | Later, same in-browser extractor interface | Stable pages are the highlighting problem we are solving first |
-| Completion | `POST /v1/complete` on the stateless API | Chapters, metadata, and transcripts are structured output. Starter to discuss: OpenAI structured outputs, called only from the API process |
-| Speech | `POST /v1/speak`. Starter to discuss: an ElevenLabs-class API behind that route | The product asks for emotion, punctuation, and a voice |
-| Word times | Timings on the speak response; otherwise `POST /v1/align` | The align call sees the bytes once and returns timings |
+| Completion | `POST /v1/complete` on the proxy, with the completion profile from IndexedDB | The vendor is whichever profile is assigned. OpenAI-compatible hosts, including a remote Ollama, are the usual case |
+| Speech | `POST /v1/speak` with the speech profile | Same profile shape. `model` is the speech model when that vendor speaks |
+| Word times | Timings on the speak response; otherwise `POST /v1/align` with the align profile | The align call sees the bytes once and returns timings |
 | Clock | HTML `<audio>` `currentTime` on a local blob | One clock for play, pause, seek, and rate |
-| Model API | Python 3.12, FastAPI | A thin proxy with a schema check, no store |
+| Model API | Python 3.12, FastAPI | A CORS proxy and vendor adapter. No store, no vendor env vars |
 
 ### 12.3 What the model API must not grow
 
-- A book table, a user table, or a job table.
+- A book table, a user table, a settings table, or a job table.
 - Object storage for PDFs or audio.
 - A queue of the reader's pipeline. The task queue is IndexedDB.
 - Sticky sessions.
+- Vendor API keys or base URLs of its own. Those arrive on the request.
 
 If a feature needs those, it belongs in the browser, or the design needs a new discussion.
 
@@ -751,18 +835,18 @@ PageExtractor.extract(blob) -> pages and words          // browser
 Embedder.embed(spans) -> vectors                        // browser
 Retriever.nearest(vector, k) -> span snippets           // browser, over IndexedDB
 
-complete(kind, payload) -> JSON                         // POST /v1/complete
-speak(transcript, voice) -> audio and optional timings  // POST /v1/speak
-align(audio, transcript) -> word timings                // POST /v1/align
+complete(provider, kind, payload) -> JSON           // POST /v1/complete via proxyBaseUrl
+speak(provider, transcript, voice) -> audio         // POST /v1/speak
+align(provider, audio, transcript) -> word timings  // POST /v1/align
 ```
 
-The browser validates every completion against the transcript and metadata schemas before writing IndexedDB.
+The browser checks the profile against the vendor table before sending, and it validates every completion against the transcript and metadata schemas before writing IndexedDB.
 
 ### 12.5 In-browser models and the stateless calls
 
 Page extraction, OCR, and embeddings are in-browser in this suggestion, not as an alternate path.
 
-Completion and speech stay on the stateless API so vendor keys stay off the page. The same function signatures can later call an in-browser model when one is good enough. Storage does not move when that happens.
+Completion and speech go through the proxy so the page can reach a vendor that does not send CORS headers, including Ollama on another host. The keys and the URL stay in the settings document and travel with the request. A later in-browser model can implement the same functions without a profile. Book storage does not move when that happens.
 
 ### 12.6 What this suggestion intentionally leaves open
 
@@ -786,6 +870,7 @@ Completion and speech stay on the stateless API so vendor keys stay off the page
 9. Should the reader confirm uncertain chapter boundaries before Ready, or fix them after listening is already possible?
 10. Are tables ever spoken, or always left as on-page content?
 11. Is an opted-in vision retry for failed OCR pages acceptable, given it sends a page image to the stateless API?
+12. Should a shared export omit `apiKey` unless the reader opts in, with import leaving existing keys in place when the file has none?
 
 ## 14. Follow-up discussions
 
@@ -794,7 +879,8 @@ These are slices of this document, not extra product. Open them when implementat
 - IndexedDB object stores, blob kinds, task resume, and the Web Lock.
 - In-browser page extractor contract, including OCR confidence and PDF user-space boxes.
 - Embedding model, what it indexes, and what a transcript request is allowed to include.
-- Stateless `/v1/complete`, `/v1/speak`, and `/v1/align` contracts, including the rule that bodies are not logged.
+- Connection settings document, vendor field table, export and import, and the proxy forward rules.
+- Stateless `/v1/complete`, `/v1/speak`, `/v1/align`, and `/v1/probe` contracts, including the rule that bodies are not logged.
 - Chapter boundary records and later correction.
 - Speech transcript schema, alignment rejection, and the emotion set.
 - Audio segment grouping, timing, and the highlight overlay.
@@ -815,3 +901,5 @@ When this design is built, a test book (a short PDF we have rights to use) shoul
 9. Emotion is present on the transcript stored in IndexedDB and is not painted onto the page.
 10. Deleting the audio blob and playing again rebuilds it with a new stateless speak call. The source spans never left IndexedDB.
 11. Two identical complete calls succeed with no server session between them.
+12. After reload, the provider profiles are still in IndexedDB. A completion request's `provider.baseUrl` is the saved remote URL, and the browser's network log shows the call going to `proxyBaseUrl` rather than to that vendor host.
+13. A profile missing a required field, such as an OpenAI profile with no `apiKey` or an Ollama profile with no `baseUrl`, is rejected in the browser and produces no proxy call.
