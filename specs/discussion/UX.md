@@ -126,6 +126,7 @@ Shown when the book is Ready.
 - **Go to page** sits with Previous and Next. The reader types a page number and presses Enter, **Go**, or leaves the field. The number is clamped to the book. `G` focuses the field unless another field already has focus. Previous, Next, and the page slider stay.
 - The page slider shows the current page on its left and the total on its right. Dragging the slider updates the current page before the book opens that page.
 - A horizontal swipe on the page turns it. The page follows the finger, slides off, and the next page comes in from the other side. A short swipe snaps back. The first page does not move on to a previous page, and the last page does not move on to a next page. With reduced motion, the swipe changes the page without the slide.
+- Vendor speech for the open page and the pages prepared ahead is kept as short lines, at most 24 words. The open page is filled first. A loader on the page says lines are still buffering. Words whose audio is already in memory have a light green tint. The word being spoken keeps the highlight.
 - Table of contents drawer (☰): chapters, bookmarks, search.
 - Search: text search across spans, with an option for **Similar passages** that uses the local embeddings.
 - Sleep timer (☾): 15, 30, 45, 60 minutes, end of chapter. Fades out over the last 10 seconds.

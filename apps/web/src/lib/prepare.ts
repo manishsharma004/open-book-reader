@@ -8,7 +8,8 @@ import {
 	type AppSettings,
 	type EmotionName
 } from '#lib/settings.js';
-import { complete, parseEmotionJson, speak, type TimedWord } from '#lib/vendor.js';
+import { clipIndexForWord, splitSpeechWords } from '#lib/speech-clips.js';
+import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
 import type { PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -21,12 +22,24 @@ export type Clause = {
 
 export type WordTiming = { wordIndex: number; start: number; end: number };
 
+export type SpeechClip = {
+	wordStart: number;
+	wordEnd: number;
+	text: string;
+	emotion: EmotionName;
+	audioUrl: string | null;
+	timings: WordTiming[] | null;
+	state: 'pending' | 'working' | 'ready' | 'error';
+	error: string | null;
+};
+
 export type PreparedPage = {
 	pageIndex: number;
 	source: 'text' | 'ocr';
 	words: PageWord[];
 	text: string;
 	clauses: Clause[];
+	clips: SpeechClip[];
 	audioUrl: string | null;
 	timings: WordTiming[] | null;
 	confidence: number | null;
@@ -37,12 +50,18 @@ type Job = {
 	index: number;
 	settings: AppSettings;
 	key: string;
+	lead: boolean;
 	promise: Promise<PreparedPage>;
 	resolve: (page: PreparedPage) => void;
 	reject: (error: unknown) => void;
 };
 
 const cache = new Map<string, PreparedPage>();
+let speechToken = 0;
+let speechPumping = false;
+const droppedPages = new WeakSet<PreparedPage>();
+type SpeechTask = { page: PreparedPage; clip: SpeechClip; settings: AppSettings; token: number };
+let speechQueue: SpeechTask[] = [];
 let jobs: Job[] = [];
 let activeKey: string | null = null;
 let activePromise: Promise<PreparedPage> | null = null;
@@ -84,13 +103,24 @@ export function cacheKey(index: number, settings: AppSettings) {
 	});
 }
 
+function release(page: PreparedPage) {
+	droppedPages.add(page);
+	speechQueue = speechQueue.filter((task) => task.page !== page);
+	const urls = new Set<string>();
+	if (page.audioUrl) urls.add(page.audioUrl);
+	for (const clip of page.clips) {
+		if (clip.audioUrl) urls.add(clip.audioUrl);
+	}
+	for (const url of urls) URL.revokeObjectURL(url);
+}
+
 export function attachDocument(next: PDFDocumentProxy | null) {
 	pdf = next;
+	speechToken += 1;
+	speechQueue = [];
 	for (const job of jobs) job.reject(new DOMException('Skipped', 'AbortError'));
 	jobs = [];
-	for (const page of cache.values()) {
-		if (page.audioUrl) URL.revokeObjectURL(page.audioUrl);
-	}
+	for (const page of cache.values()) release(page);
 	cache.clear();
 	emit();
 }
@@ -102,7 +132,7 @@ function remember(key: string, page: PreparedPage) {
 		const oldest = cache.keys().next().value;
 		if (oldest === undefined) break;
 		const dropped = cache.get(oldest);
-		if (dropped?.audioUrl) URL.revokeObjectURL(dropped.audioUrl);
+		if (dropped) release(dropped);
 		cache.delete(oldest);
 	}
 }
@@ -110,10 +140,16 @@ function remember(key: string, page: PreparedPage) {
 function enqueue(index: number, settings: AppSettings, front: boolean): Promise<PreparedPage> {
 	const key = cacheKey(index, settings);
 	const hit = cache.get(key);
-	if (hit) return Promise.resolve(hit);
+	if (hit) {
+		if (front) bufferSpeech(hit, settings, 0, true);
+		return Promise.resolve(hit);
+	}
 	const queued = jobs.find((job) => job.key === key);
 	if (queued) {
-		if (front) jobs = [queued, ...jobs.filter((job) => job !== queued)];
+		if (front) {
+			queued.lead = true;
+			jobs = [queued, ...jobs.filter((job) => job !== queued)];
+		}
 		return queued.promise;
 	}
 	if (activeKey === key && activePromise) return activePromise;
@@ -124,7 +160,7 @@ function enqueue(index: number, settings: AppSettings, front: boolean): Promise<
 		reject = rejectPromise;
 	});
 	promise.catch(() => {});
-	const job: Job = { index, settings, key, promise, resolve, reject };
+	const job: Job = { index, settings, key, lead: front, promise, resolve, reject };
 	if (front) jobs.unshift(job);
 	else jobs.push(job);
 	emit();
@@ -159,7 +195,7 @@ async function pump() {
 			activePromise = job.promise;
 			emit();
 			try {
-				const page = await doPrepare(job.index, job.settings);
+				const page = await doPrepare(job.index, job.settings, job.lead);
 				remember(job.key, page);
 				job.resolve(page);
 			} catch (error) {
@@ -182,6 +218,8 @@ export function warm(current: number, pageCount: number, settings: AppSettings) 
 		const index = current + offset;
 		if (index < pageCount) wanted.push(index);
 	}
+	const wantedSet = new Set(wanted);
+	speechQueue = speechQueue.filter((task) => wantedSet.has(task.page.pageIndex));
 	const keep = new Set(wanted.map((index) => cacheKey(index, settings)));
 	const kept: Job[] = [];
 	for (const job of jobs) {
@@ -245,15 +283,6 @@ function alignClauses(words: PageWord[], raw: { text: string; emotion: EmotionNa
 	return clauses;
 }
 
-function alignTimings(words: PageWord[], timed: TimedWord[]): WordTiming[] {
-	const count = Math.min(words.length, timed.length);
-	return Array.from({ length: count }, (_, index) => ({
-		wordIndex: index,
-		start: timed[index].start,
-		end: timed[index].end
-	}));
-}
-
 async function blobToBase64(blob: Blob) {
 	const bytes = new Uint8Array(await blob.arrayBuffer());
 	let binary = '';
@@ -261,15 +290,130 @@ async function blobToBase64(blob: Blob) {
 	return btoa(binary);
 }
 
-async function doPrepare(index: number, settings: AppSettings): Promise<PreparedPage> {
+function emotionAt(clauses: Clause[], wordIndex: number): EmotionName {
+	return clauses.find((clause) => wordIndex >= clause.wordStart && wordIndex < clause.wordEnd)?.emotion ?? 'neutral';
+}
+
+function makeClips(words: PageWord[], clauses: Clause[]): SpeechClip[] {
+	return splitSpeechWords(words.map((word) => word.text)).map((span) => ({
+		wordStart: span.wordStart,
+		wordEnd: span.wordEnd,
+		text: words
+			.slice(span.wordStart, span.wordEnd)
+			.map((word) => word.text)
+			.join(' '),
+		emotion: emotionAt(clauses, span.wordStart),
+		audioUrl: null,
+		timings: null,
+		state: 'pending',
+		error: null
+	}));
+}
+
+async function speakClip(settings: AppSettings, clip: SpeechClip, pageNumber: number, which: number, total: number) {
+	const started = performance.now();
+	logPipeline({
+		page: pageNumber,
+		stage: 'tts',
+		status: 'start',
+		ms: null,
+		detail: `POST /v1/speak clip ${which}/${total} (${clip.wordEnd - clip.wordStart} words) → ${settings.tts.vendor} ${hostOf(settings.tts.baseUrl)}`
+	});
+	const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+	const sample = useSample ? await voiceSample(settings) : undefined;
+	const sampleBase64 = sample ? await blobToBase64(sample) : null;
+	const result = await speak(
+		settings.tts,
+		clip.text,
+		clip.emotion,
+		`${PROSODY[clip.emotion].instruction} Say: ${clip.text}`,
+		sampleBase64,
+		Boolean(sample),
+		sample?.type || null
+	);
+	clip.audioUrl = URL.createObjectURL(result.blob);
+	clip.timings = result.words
+		? result.words.map((word, index) => ({
+				wordIndex: clip.wordStart + index,
+				start: word.start,
+				end: word.end
+			}))
+		: null;
+	clip.state = 'ready';
+	logPipeline({
+		page: pageNumber,
+		stage: 'tts',
+		status: 'ok',
+		ms: Math.round(performance.now() - started),
+		detail: `${result.delivery} Clip ${which}/${total}, ${result.blob.size} bytes. ${clip.timings ? `${clip.timings.length} word times.` : 'No word times, so this clip highlights by length.'}`
+	});
+}
+
+function clipsFrom(page: PreparedPage, fromWord: number): SpeechClip[] {
+	const focus = Math.max(0, clipIndexForWord(page.clips, fromWord));
+	const ordered = focus > 0 ? [...page.clips.slice(focus), ...page.clips.slice(0, focus)] : page.clips;
+	return ordered.filter((clip) => clip.state === 'pending');
+}
+
+export function bufferSpeech(page: PreparedPage, settings: AppSettings, fromWord = 0, front = false) {
+	if (settings.tts.vendor === 'browser' || page.clips.length === 0 || droppedPages.has(page)) return;
+	const token = speechToken;
+	const tasks = clipsFrom(page, fromWord).map((clip) => ({ page, clip, settings, token }));
+	if (tasks.length === 0) return;
+	const chosen = new Set(tasks.map((task) => task.clip));
+	speechQueue = speechQueue.filter((task) => !chosen.has(task.clip));
+	speechQueue = front ? [...tasks, ...speechQueue] : [...speechQueue, ...tasks];
+	void pumpSpeech();
+}
+
+async function pumpSpeech() {
+	if (speechPumping) return;
+	speechPumping = true;
+	try {
+		while (speechQueue.length) {
+			const task = speechQueue.shift();
+			if (!task || task.token !== speechToken || droppedPages.has(task.page)) continue;
+			if (task.clip.state !== 'pending') continue;
+			task.clip.state = 'working';
+			emit();
+			try {
+				await speakClip(
+					task.settings,
+					task.clip,
+					task.page.pageIndex + 1,
+					task.page.clips.indexOf(task.clip) + 1,
+					task.page.clips.length
+				);
+				if (task.clip.wordStart === 0) task.page.audioUrl = task.clip.audioUrl;
+			} catch (error) {
+				task.clip.state = 'error';
+				task.clip.error = error instanceof Error ? error.message : 'Speech failed';
+				task.page.note = task.clip.error;
+				logPipeline({
+					page: task.page.pageIndex + 1,
+					stage: 'tts',
+					status: 'error',
+					ms: null,
+					detail: `${task.clip.error} Playback uses the browser voice if no clip is ready.`
+				});
+			}
+			emit();
+		}
+	} finally {
+		speechPumping = false;
+		if (speechQueue.length) void pumpSpeech();
+	}
+}
+
+async function doPrepare(index: number, settings: AppSettings, lead: boolean): Promise<PreparedPage> {
 	if (!pdf) throw new Error('The book is not open.');
 	const pageNumber = index + 1;
 	const started = performance.now();
 	logPipeline({ page: pageNumber, stage: 'text', status: 'start', ms: null, detail: 'Reading the page' });
-	const page = await pdf.getPage(pageNumber);
+	const pdfPage = await pdf.getPage(pageNumber);
 	let extracted;
 	try {
-		extracted = await readPage(page, settings.ocrLanguage || 'eng', pageNumber);
+		extracted = await readPage(pdfPage, settings.ocrLanguage || 'eng', pageNumber);
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : `OCR failed: ${String(error)}`;
 		logPipeline({ page: pageNumber, stage: 'ocr', status: 'error', ms: Math.round(performance.now() - started), detail });
@@ -279,6 +423,7 @@ async function doPrepare(index: number, settings: AppSettings): Promise<Prepared
 			words: [],
 			text: '',
 			clauses: [],
+			clips: [],
 			audioUrl: null,
 			timings: null,
 			confidence: null,
@@ -371,8 +516,7 @@ async function doPrepare(index: number, settings: AppSettings): Promise<Prepared
 		}
 	}
 
-	let audioUrl: string | null = null;
-	let timings: WordTiming[] | null = null;
+	const clips = extracted.text ? makeClips(extracted.words, clauses) : [];
 	let note: string | null = null;
 	if (settings.tts.vendor === 'browser') {
 		logPipeline({
@@ -385,51 +529,13 @@ async function doPrepare(index: number, settings: AppSettings): Promise<Prepared
 	} else if (!extracted.text) {
 		logPipeline({ page: pageNumber, stage: 'tts', status: 'skip', ms: 0, detail: 'No words to speak.' });
 	} else {
-		const speechStarted = performance.now();
 		logPipeline({
 			page: pageNumber,
 			stage: 'tts',
 			status: 'start',
 			ms: null,
-			detail: `POST /v1/speak → ${settings.tts.vendor} ${hostOf(settings.tts.baseUrl)} model ${settings.tts.model || '(default)'} voice ${settings.tts.voice || '(default)'}`
+			detail: `${clips.length} clips of at most 24 words. The open page is spoken first, then the rest of the page buffer.`
 		});
-		try {
-			const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
-			const sample = useSample ? await voiceSample(settings) : undefined;
-			const sampleBase64 = sample ? await blobToBase64(sample) : null;
-			const dominant = clauses[0]?.emotion ?? 'neutral';
-			const spoken = clauses.map((clause) => clause.text).join(' ');
-			const instructions = clauses
-				.map((clause) => `${PROSODY[clause.emotion].instruction} Say: ${clause.text}`)
-				.join('\n');
-			const result = await speak(
-				settings.tts,
-				spoken,
-				dominant,
-				instructions,
-				sampleBase64,
-				Boolean(sample),
-				sample?.type || null
-			);
-			audioUrl = URL.createObjectURL(result.blob);
-			timings = result.words ? alignTimings(extracted.words, result.words) : null;
-			logPipeline({
-				page: pageNumber,
-				stage: 'tts',
-				status: 'ok',
-				ms: Math.round(performance.now() - speechStarted),
-				detail: `${result.delivery} Audio ${result.blob.size} bytes, ${result.mime}. ${timings ? `${timings.length} word times.` : 'No word times, so the whole page highlights together.'}`
-			});
-		} catch (error) {
-			note = error instanceof Error ? error.message : 'Speech failed';
-			logPipeline({
-				page: pageNumber,
-				stage: 'tts',
-				status: 'error',
-				ms: Math.round(performance.now() - speechStarted),
-				detail: `${note} Playback will use the browser voice for this page.`
-			});
-		}
 	}
 
 	const readyCount = bufferReadyCount(index, settings);
@@ -441,17 +547,20 @@ async function doPrepare(index: number, settings: AppSettings): Promise<Prepared
 			detail: `Page ${pageNumber} is ready. Lookahead is ${settings.lookahead} pages. ${readyCount}`
 	});
 
-	return {
+	const page: PreparedPage = {
 		pageIndex: index,
 		source: extracted.source,
 		words: extracted.words,
 		text: extracted.text,
 		clauses,
-		audioUrl,
-		timings,
+		clips,
+		audioUrl: null,
+		timings: null,
 		confidence: extracted.confidence,
 		note
 	};
+	if (settings.tts.vendor !== 'browser') bufferSpeech(page, settings, 0, lead);
+	return page;
 }
 
 function bufferReadyCount(index: number, settings: AppSettings) {
