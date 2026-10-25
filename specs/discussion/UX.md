@@ -123,6 +123,7 @@ Shown when the book is Ready.
 - The **Aa** menu sets size and Day, Night, or System. The first visit follows the system until the reader chooses.
 - **Follow along** is on by default. Manual page turns or scrolling switch it off and show **Back to reading position**.
 - Tap or click a word: seek there. Long-press or right-click a word: **Play from here**, **Fix pronunciation**, **Bookmark**, **Copy sentence**.
+- **Go to page** sits with Previous and Next. The reader types a page number and presses Enter, **Go**, or leaves the field. The number is clamped to the book. `G` focuses the field unless another field already has focus. Previous, Next, and the page slider stay.
 - Table of contents drawer (☰): chapters, bookmarks, search.
 - Search: text search across spans, with an option for **Similar passages** that uses the local embeddings.
 - Sleep timer (☾): 15, 30, 45, 60 minutes, end of chapter. Fades out over the last 10 seconds.
@@ -159,6 +160,8 @@ Shown when the book is Ready.
 | --- | --- | --- |
 | Play or pause. Pause keeps the position. Play continues from it | ▶ | `Space` or `K` |
 | Back or forward 15 s | ⟲15 / 15⟳ | `J` / `L` |
+| Previous or next page | Previous / Next, page slider | |
+| Go to a page number | Go to page | `G`, then the number and Enter |
 | Previous or next sentence | | `←` / `→` |
 | Previous or next chapter | ⏮ / ⏭ | `Shift+←` / `Shift+→` |
 | Slower or faster (0.1 steps, 0.5–3.0) | 1.25× | `[` / `]` |
