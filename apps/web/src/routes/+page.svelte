@@ -9,6 +9,7 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
 	import { deleteBook, findBookByHash, getBlob, listBooks, saveBook, sha256, type Book } from '#lib/db.js';
+	import { randomId } from '#lib/hash.js';
 	import { coverBlob, isPasswordError, openPdf } from '#lib/pdf.js';
 
 	let books = $state<Book[]>([]);
@@ -64,13 +65,13 @@
 			const info = meta?.info as { Title?: string } | undefined;
 			const title = info?.Title?.trim() || file.name.replace(/\.pdf$/i, '');
 			const book: Book = {
-				id: crypto.randomUUID(),
+				id: randomId(),
 				title,
 				sourceHash: hash,
 				pageCount: pdf.numPages,
 				addedAt: Date.now(),
-				blobId: crypto.randomUUID(),
-				coverId: crypto.randomUUID()
+				blobId: randomId(),
+				coverId: randomId()
 			};
 			await saveBook(book, file, cover);
 			await pdf.cleanup();

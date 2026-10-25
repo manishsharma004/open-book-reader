@@ -1,4 +1,5 @@
 import { deleteBlob, getBlob, putBlob, readAppRecord, writeAppRecord } from '#lib/db.js';
+import { randomId } from '#lib/hash.js';
 import { applyPalette, applyTheme, readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
 
 export const EMOTIONS = [
@@ -151,7 +152,7 @@ export async function storeSettings(settings: AppSettings) {
 }
 
 export async function saveVoiceSample(settings: AppSettings, file: Blob, fileName: string) {
-	const id = settings.cloneBlobId ?? crypto.randomUUID();
+	const id = settings.cloneBlobId ?? randomId();
 	await putBlob(id, 'sample', file);
 	settings.cloneBlobId = id;
 	settings.cloneFileName = fileName;

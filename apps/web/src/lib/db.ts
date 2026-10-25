@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { sha256 as hashBlob } from '#lib/hash.js';
 
 export type Book = {
 	id: string;
@@ -105,6 +106,5 @@ export async function deleteBlob(id: string) {
 }
 
 export async function sha256(file: Blob): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+	return hashBlob(file);
 }
