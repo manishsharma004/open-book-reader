@@ -55,6 +55,22 @@ The page the reader sees is the book page. A text view of the same spans is avai
 
 The reader can move between levels at any time. Moving up re-queues only the model tasks that were skipped.
 
+### 1.2 What is running
+
+Checked 26 October 2026. The library, settings, and reader are in the app. The rest of this document is the target: spans, embeddings, chapter records, the Ready gate, export, and the text view are not built. Do not treat a missing piece of that pipeline as a regression.
+
+What the running reader does:
+
+- The PDF, the cover, settings, and an optional voice sample live in IndexedDB `open-book-reader`. The server stores none of them.
+- PDF.js draws the page. A page with fewer than 8 text-layer words is read with tesseract.js. Spoken words keep the punctuation that was printed on them.
+- Vendor speech is not one request per page. Clips end on a full stop and pack up to the pace in the player, which defaults to 24 words and steps by 4 from 8 to 48. A sentence longer than the pace stays one clip until twice the pace, and never past 64 words. A run with no full stop is still cut at the pace.
+- The buffer is the open page plus the next 2 or 3 pages. The open page is filled first. The page is shown when its words are known. Playback starts when the first clip has audio. Words with audio are tinted green.
+- Two audio elements are used. The idle one loads the next clip while the current one plays, including the first clip of the next page during the last line. When the last line ends, reading continues on the next page. The last page stops.
+- A chapter title on the page is a larger short line, a label such as Chapter 3, or a short line in capitals. It is spoken on its own and marked on the page. A running header, footer, or page number is not spoken.
+- Changing the page aborts queued work and the request already in flight. Pocket stops on the next generation step. The proxy answers 499.
+- Pace is in the player and in Settings. **Remove sample**, in both places, deletes the saved reference. Later speech uses the voice id.
+- The app server on port 7507 serves `apps/web/build` and `/v1`. A web-only change is live after `npm run build` in `apps/web`. Pocket is a separate process on port 7508. Restart a process only when its own code changed.
+
 ### In scope for this design
 
 - One reader and the books they add, stored in that browser profile.
@@ -626,7 +642,7 @@ specs/       design discussion
 
 The server must not grow a book table, user table, settings table, job queue, object storage, sticky sessions, or vendor keys of its own.
 
-The recommended compose file runs two services. `web` is the app server. `kokoro` is Kokoro-FastAPI, reachable from `web` and not published to the host. The speech profile's `baseUrl` points at that service, and the browser still only calls `/v1`. Kokoro keeps nothing of the book between requests. A text model is not bundled; the reader points a text profile at Ollama or a hosted vendor. OpenAI's current speech models are not the default: they are listed to shut down on January 6, 2027, and they return no word timings. Kokoro returns word timings, so the default setup needs no timing profile. Kokoro cannot clone a voice. On an 8GB GPU the text model already needs the card, so the clone engine is Kyutai Pocket TTS `english_18m_refl_2026-10` (20 October 2026): 18.2M parameters, about 10× realtime on one CPU thread, a wav sample as the voice. In this container the Pocket process uses the CPU wheel of PyTorch while it is on the CPU, because the ROCm wheel's CPU kernels are several times slower. It uses ROCm PyTorch `2.14.0+rocm10.1.0` with gfx1012 kernels on the RX 5500M when that card has at least 1 GB free. Text is split on word boundaries into chunks of at most 45 tokens. A longer chunk often never emits an end mark and then runs to the model's maximum length, which passes the proxy's 90 second limit. It does not return word timings, so highlight uses the per-word estimate. Pocket runs as its own process, the same way Kokoro does, and the proxy forwards speech to it on port 7508. Port 7508 is inside the 7500–7510 range this container publishes. A saved sample is sent as `voice_wav`. A builtin voice name is sent as `voice_url`. The proxy does not forward a voice URL for Pocket to fetch. ElevenLabs is not the cloning path for this machine. One voice speaks narration and dialogue. The transcript's `speaker` is kept for a later second voice and does not select a voice now.
+The recommended compose file runs two services. `web` is the app server. `kokoro` is Kokoro-FastAPI, reachable from `web` and not published to the host. The speech profile's `baseUrl` points at that service, and the browser still only calls `/v1`. Kokoro keeps nothing of the book between requests. A text model is not bundled; the reader points a text profile at Ollama or a hosted vendor. OpenAI's current speech models are not the default: they are listed to shut down on January 6, 2027, and they return no word timings. Kokoro returns word timings, so the default setup needs no timing profile. Kokoro cannot clone a voice. On an 8GB GPU the text model already needs the card, so the clone engine is Kyutai Pocket TTS `english_18m_refl_2026-10` (20 October 2026): 18.2M parameters, about 10× realtime on one CPU thread, a wav sample as the voice. In this container the Pocket process uses the CPU wheel of PyTorch while it is on the CPU, because the ROCm wheel's CPU kernels are several times slower. It uses ROCm PyTorch `2.14.0+rocm10.1.0` with gfx1012 kernels on the RX 5500M when that card has at least 1 GB free. The browser builds the clips in [What is running](#12-what-is-running). Pocket itself still breaks only on sentence punctuation, so a page sent as one request with no full stop runs to the model's maximum length and can pass the proxy's 90 second limit. It does not return word timings, so highlight uses the per-word estimate. Pocket runs as its own process, the same way Kokoro does, and the proxy forwards speech to it on port 7508. Port 7508 is inside the 7500–7510 range this container publishes. A saved sample is sent as `voice_wav`. A builtin voice name is sent as `voice_url`. The proxy does not forward a voice URL for Pocket to fetch. ElevenLabs is not the cloning path for this machine. One voice speaks narration and dialogue. The transcript's `speaker` is kept for a later second voice and does not select a voice now.
 
 ### 12.2 Ink and Lamp
 
@@ -703,6 +719,7 @@ These were open questions. They are decided.
 | 9 | Vision retry is off until the reader opts in for that book, because it sends a page image | [Page analysis](#62-page-analysis) |
 | 10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs. OpenAI speech is not the default | [Suggested stack](#12-suggested-stack) |
 | 11 | The recommended compose file runs Kokoro as its own service next to the app server. The app image does not contain the speech weights, and no text model is bundled | [Suggested stack](#12-suggested-stack) |
+| 12 | The running reader speaks short clips for the open page and the pages ahead, and play starts on the first clip. The span pipeline and the Ready gate stay the target and are not what the app does today | [What is running](#12-what-is-running), [Page buffer](#78-page-buffer) |
 
 ## 15. Follow-up discussions
 

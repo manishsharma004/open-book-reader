@@ -33,3 +33,14 @@ These constraints are already decided in `specs/discussion/DESIGN.md`. Keep them
 ## Vendor facts
 
 Vendor APIs, model names, and retirement dates change. When a spec states a vendor fact, check it against the vendor's current documentation and say in the spec when it was checked.
+
+## Later sessions
+
+`CLAUDE.md` is the handoff for the machine this repo is running on. Read it before changing speech, Pocket, or processes. `DESIGN.md` §1.2 is what the app does today. The rest of `specs/discussion/` is the target pipeline and is not built.
+
+- Publish services only on ports 7500–7510. The app server is 7507. Pocket is 7508. Do not bind or document a service outside that range.
+- A change under `apps/web` is served from `apps/web/build` after `npm run build`. Do not restart the app server for a web-only change. Restart it only when `apps/server` changes. Restart Pocket only when `services/pocket` changes.
+- Do not install Pocket's `requirements.txt` on this machine. That file does not pin torch, and a Linux install replaces the ROCm wheel with a CUDA wheel. Do not set `HSA_OVERRIDE_GFX_VERSION`.
+- Do not kill processes by name. If a process must stop, stop that pid.
+- Commit as `manishsharma004` / `51284079+manishsharma004@users.noreply.github.com` with `git -c`. Do not change global git config. Do not force-push. Do not commit `apps/web/test_*.cjs`.
+- `gh` is not on PATH. The design sync script reads `$GITHUB_TOKEN_FILE` itself. Do not print the token.
