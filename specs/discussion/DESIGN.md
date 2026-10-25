@@ -173,7 +173,7 @@ Each is one request. The proxy writes no database row, no file that outlives the
 | `POST /v1/probe` | one assignment | ok or the vendor error, models or voices, a voice sample, timing support, throughput |
 | `GET /v1/health` | none | server version and whether audio conversion is available |
 
-The vendor-specific request shapes, the forwarding and security rules, and the deployment modes are in `PROVIDERS.md`.
+The vendor-specific request shapes, the forwarding and security rules, and the deployment modes are in `PROVIDERS.md`. The running proxy refuses a completion call that is not for an Ollama server, and a speech call that is not for Kokoro on this machine, OpenAI, or ElevenLabs, unless that exact host is named in `OLLAMA_ALLOW` or `SPEECH_ALLOW`.
 
 ## 5. IndexedDB storage and task state
 
