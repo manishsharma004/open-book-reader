@@ -144,7 +144,7 @@ Shown when the book is Ready.
 
 | Section | Contents |
 | --- | --- |
-| Connections | Separate forms for VLLM, emotion analysis, and TTS. Each has a base URL, model, and API key. TTS also has vendor, voice id, a voice sample, and **Create ElevenLabs voice**. **Test** calls the proxy |
+| Connections | Separate forms for VLLM, emotion analysis, and TTS. Each has a base URL, model, and API key. VLLM and emotion analysis tell the reader that completion is forwarded only to local Ollama or `OLLAMA_ALLOW`. TTS tells the reader that speech is forwarded only to local Kokoro, OpenAI, ElevenLabs, or `SPEECH_ALLOW`. TTS also has vendor, voice id, a voice sample, and **Create ElevenLabs voice**. **Test** calls the proxy |
 | Reading | Palette (Ink or Lamp), pages prepared ahead (2 or 3), OCR language, browser voice or vendor voice, emotion (auto or a named emotion), Day / Night / System |
 | Storage | Per-book usage (source, pages, embeddings, audio), persistence status with **Request persistence**, prepared-audio cap (default 200 MB per book), **Export library**, **Remove all prepared audio** |
 | Privacy | What each model call sends (table from `DESIGN.md`). **Send unreadable pages to the text model** is off and is enabled per book; the control says the page image is sent |

@@ -16,7 +16,7 @@ This file covers:
 
 Vendor choice is a browser setting, not server configuration. One document in the `settings` store holds every connection. Batch analysis, transcripts, speech, and timing all read it, and each call sends the part it needs. The proxy keeps no copy.
 
-The reader settings screen keeps three hosts separate: VLLM (OpenAI-compatible text), emotion analysis (a text model that returns clause emotions), and TTS (browser, Kokoro, OpenAI-compatible speech, or ElevenLabs). The browser calls `POST /v1/complete`, `POST /v1/speak`, and `POST /v1/voices/clone`. Each body includes that call's base URL, model, and key. The proxy checks that the base URL is `http` or `https` with no userinfo, does not follow redirects, and does not log the body. ElevenLabs is the vendor that creates a voice id from a sample. Other hosts keep the sample in the browser and can receive it as reference audio when the reader turns that on. The browser voice does not call the proxy; it changes pitch, rate, and volume for the chosen emotion and says so.
+The reader settings screen keeps three hosts separate: VLLM (Ollama completion), emotion analysis (a second Ollama model that returns clause emotions), and TTS (browser, Kokoro, OpenAI speech, or ElevenLabs). The browser calls `POST /v1/complete`, `POST /v1/speak`, and `POST /v1/voices/clone`. Each body includes that call's base URL, model, and key. The proxy does not treat that URL as an open forward. Completion is sent only to Ollama on this machine at port 11434, to `https://ollama.com`, or to one host listed in `OLLAMA_ALLOW`. Speech is sent only to Kokoro on this machine at port 8880, to `https://api.openai.com`, to `https://api.elevenlabs.io`, or to a `host:port` listed in `SPEECH_ALLOW`. Link-local and cloud-metadata addresses are refused even when listed. Redirects are not followed, and the body is not logged. ElevenLabs is the vendor that creates a voice id from a sample. Other hosts keep the sample in the browser and can receive it as reference audio when the reader turns that on. The browser voice does not call the proxy; it changes pitch, rate, and volume for the chosen emotion and says so.
 
 ```json
 {
@@ -76,6 +76,8 @@ The reader settings screen keeps three hosts separate: VLLM (OpenAI-compatible t
 }
 ```
 
+The study-PC URLs above are stored in the browser. The app server still refuses them until its environment names those sockets: `OLLAMA_ALLOW=192.168.1.40:11434` and `SPEECH_ALLOW=192.168.1.40:8880`. A base URL on its own does not open the rest of that network.
+
 ### 1.1 Profiles and assignments
 
 A **profile** is a connection: vendor, base URL, credentials, timeout, extra headers. An **assignment** says which profile and model do one job, plus the options for that job. One OpenAI profile can serve text, speech, and timing with three different models, and the key is entered once.
@@ -98,7 +100,7 @@ An empty `timing` assignment is allowed. Segments from engines without timings a
 | --- | --- | --- |
 | `id`, `name` | yes | Local. `name` is what the reader sees |
 | `vendor` | yes | A row in the tables below |
-| `baseUrl` | yes | The vendor's client base URL, not a full endpoint. Defaults are filled in for hosted vendors. For a local or LAN host this is how the proxy finds the machine |
+| `baseUrl` | yes | The vendor's client base URL, not a full endpoint. Defaults are filled in for hosted vendors. A LAN host is contacted only when `OLLAMA_ALLOW` or `SPEECH_ALLOW` names that host and port |
 | `apiKey` | per vendor | Forwarded only to `baseUrl`'s host, in the header that vendor expects |
 | `timeoutMs` | no | Default 120000. Local models on CPU need more |
 | `extraHeaders` | no | String map added after the vendor's headers. Cannot set `Authorization`, `api-key`, `x-api-key`, `xi-api-key`, `x-goog-api-key`, `Ocp-Apim-Subscription-Key`, `Host`, `Cookie`, or `Content-Length`. Credentials live only in named fields so the reader can see them |
@@ -212,7 +214,7 @@ The proxy holds no data, but it is a request forwarder that receives API keys. I
 | Token | Required when bound to anything but loopback (`PROXY_TOKEN`), refused to start without it | A LAN-bound proxy without a token lets any device on the network spend the reader's keys if it sees a request, and reach internal hosts |
 | Origin check | Requests with an `Origin` header must match the app's own origin or `CORS_ORIGINS` | Another website open in the same browser cannot call the proxy |
 | Host check | `Host` must be in `ALLOWED_HOSTS` (default: `localhost`, `127.0.0.1`, and the configured public name) | DNS rebinding |
-| Forwarding targets | Any host in the request, except link-local and cloud metadata addresses (`169.254.0.0/16`, `fd00:ec2::254`), which are always blocked. `FORWARD_ALLOW` restricts targets to a list of hosts or CIDRs | A personal proxy needs to reach LAN model hosts; a shared one should not reach everything |
+| Forwarding targets | Completion: Ollama at `127.0.0.1`, `localhost`, or `::1` on port 11434, plus `https://ollama.com`. Speech: Kokoro at those loopback hosts on port 8880, `https://api.openai.com`, and `https://api.elevenlabs.io`. `OLLAMA_ALLOW` and `SPEECH_ALLOW` add exact `host` or `host:port` entries (a completion entry without a port uses 11434; a speech entry must include a port). No CIDR, and no other path than the one the route builds. Link-local and metadata (`169.254.0.0/16`, `fd00:ec2::254`) are refused even if listed | The base URL is chosen by the caller. An open forward would let that caller reach the rest of the local network |
 | Redirects | Not followed | A vendor redirect could move the request and its key to another host |
 | Credentials | Vendor keys are taken only from named profile fields and sent only to `baseUrl`'s host | `extraHeaders` cannot carry a second key |
 | Logging | Method, route, vendor, status, and duration only. No bodies, headers, keys, tokens, or URLs with query strings | Book text and keys must not land in server logs |
