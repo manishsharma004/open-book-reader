@@ -548,7 +548,7 @@
 							<canvas bind:this={canvas} class="bg-white shadow-sm"></canvas>
 							{#if viewport}
 								<div class="pointer-events-none absolute inset-0">
-									{#each words as word, index (word.charStart)}
+									{#each words as word, index (`${index}:${word.charStart}`)}
 										{@const box = wordBox(word)}
 										<button
 											type="button"
@@ -619,8 +619,8 @@
 				{#if settings.tts.vendor === 'browser'}
 					<select class={field} value={settings.voiceName} onchange={onVoice} aria-label="Voice">
 						<option value="">Browser default voice</option>
-						{#each voices as voice (voice.voiceURI)}
-							<option value={voice.voiceURI}>{voice.name}</option>
+						{#each voices as voice, index (`${index}:${voice.voiceURI}`)}
+							<option value={voice.voiceURI || voice.name}>{voice.name || voice.voiceURI || `Voice ${index + 1}`}</option>
 						{/each}
 					</select>
 				{:else}
