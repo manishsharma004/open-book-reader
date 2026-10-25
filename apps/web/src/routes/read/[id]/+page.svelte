@@ -17,13 +17,14 @@
 	import { commitSettings, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
-	import { browserDelivery, listVoices, voiceByName } from '#lib/speech.js';
+	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
 	import { onDestroy } from 'svelte';
 
 	let book = $state<Book | null>(null);
 	let error = $state('');
+	let voiceNote = $state('');
 	let pageIndex = $state(0);
 	let scrub = $state<number | null>(null);
 	let words = $state<PageWord[]>([]);
@@ -113,12 +114,13 @@
 	function halt() {
 		playToken += 1;
 		stopClock();
-		speechSynthesis.cancel();
+		cancelSpeech();
 		if (audio) audio.pause();
 		heldAudioTime = null;
 		resumeWord = 0;
 		activeWord = -1;
 		playing = false;
+		voiceNote = '';
 	}
 
 	onDestroy(() => {
@@ -145,12 +147,9 @@
 	});
 
 	$effect(() => {
-		const sync = () => {
+		return watchVoices(() => {
 			voices = listVoices();
-		};
-		sync();
-		speechSynthesis.addEventListener('voiceschanged', sync);
-		return () => speechSynthesis.removeEventListener('voiceschanged', sync);
+		});
 	});
 
 	$effect(() => {
@@ -297,7 +296,15 @@
 				return;
 			}
 			const delivery = browserDelivery(clause.emotion, rate);
-			const utterance = new SpeechSynthesisUtterance(spoken);
+			let utterance: SpeechSynthesisUtterance;
+			try {
+				utterance = createUtterance(spoken);
+			} catch (caught) {
+				playing = false;
+				activeWord = -1;
+				voiceNote = caught instanceof Error ? caught.message : 'Could not start the browser voice.';
+				return;
+			}
 			utterance.rate = delivery.rate;
 			utterance.pitch = delivery.pitch;
 			utterance.volume = delivery.volume;
@@ -347,7 +354,16 @@
 			}
 			window.setTimeout(() => {
 				if (token !== playToken) return;
-				speechSynthesis.speak(utterance);
+				try {
+					speak(utterance);
+				} catch (caught) {
+					if (token !== playToken) return;
+					stopClock();
+					playing = false;
+					activeWord = -1;
+					voiceNote = caught instanceof Error ? caught.message : 'Could not start the browser voice.';
+					return;
+				}
 				window.setTimeout(begin, 250);
 			}, 40);
 		};
@@ -405,9 +421,10 @@
 		const continueTime = !seek && heldAudioTime != null ? heldAudioTime : null;
 		heldAudioTime = null;
 		resumeWord = fromWord;
+		voiceNote = '';
 		const token = ++playToken;
 		stopClock();
-		speechSynthesis.cancel();
+		cancelSpeech();
 		activeWord = fromWord;
 		if (prepared.audioUrl && audio) {
 			audio.playbackRate = rate;
@@ -460,7 +477,7 @@
 		}
 		playToken += 1;
 		stopClock();
-		speechSynthesis.cancel();
+		cancelSpeech();
 		playing = false;
 	}
 
@@ -619,7 +636,9 @@
 					· pitch and rate stand in for emotion
 				{/if}
 			</p>
-			{#if prepared?.note}
+			{#if voiceNote}
+				<p class="text-destructive w-full text-xs">{voiceNote}</p>
+			{:else if prepared?.note}
 				<p class="text-destructive w-full text-xs">{prepared.note}</p>
 			{/if}
 		</div>
