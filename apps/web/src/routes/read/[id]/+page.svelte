@@ -29,6 +29,7 @@
 	let book = $state<Book | null>(null);
 	let error = $state('');
 	let voiceNote = $state('');
+	let sampleNote = $state('');
 	let pageIndex = $state(0);
 	let scrub = $state<number | null>(null);
 	let pageDraft = $state('1');
@@ -816,7 +817,8 @@
 
 	async function removeSample() {
 		await removeVoiceSample();
-		voiceNote = 'Sample removed. Later speech uses the voice id.';
+		voiceNote = '';
+		sampleNote = 'Sample removed. Later speech uses the voice id.';
 	}
 
 	async function onPace(event: Event) {
@@ -1062,7 +1064,9 @@
 					· pitch and rate stand in for emotion
 				{/if}
 			</p>
-			{#if voiceNote}
+			{#if sampleNote}
+				<p class="text-muted-foreground w-full text-xs">{sampleNote}</p>
+			{:else if voiceNote}
 				<p class="text-destructive w-full text-xs">{voiceNote}</p>
 			{:else if prepared?.note}
 				<p class="text-destructive w-full text-xs">{prepared.note}</p>
