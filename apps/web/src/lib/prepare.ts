@@ -13,6 +13,7 @@ import { spokenClipText } from '#lib/page-roles.js';
 import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
 import { getSpeech, putSpeech } from '#lib/db.js';
+import { extendsLaidPages } from '#lib/laid-pages.js';
 import { speechCacheId, type SpeechIdentity } from '#lib/speech-cache.js';
 import type { PageText, PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -179,6 +180,13 @@ export function attachDocument(next: PDFDocumentProxy | null) {
 }
 
 export function attachText(pages: string[] | null) {
+	// Measuring the next spine file appends pages. Resetting here aborted the clip
+	// that had just become ready, so the loader vanished and came straight back.
+	if (extendsLaidPages(textPages, pages)) {
+		textPages = pages;
+		pdf = null;
+		return;
+	}
 	textPages = pages;
 	pdf = null;
 	resetDocument();

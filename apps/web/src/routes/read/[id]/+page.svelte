@@ -35,7 +35,8 @@
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import { publishChapters, publishPageCount } from '#lib/laid-pages.js';
 
 	let book = $state<Book | null>(null);
 	let error = $state('');
@@ -513,7 +514,9 @@
 		const index = pageIndex;
 		const revision = settingsState.revision;
 		const currentSettings = settingsState.current;
-		const pageCount = book?.pageCount ?? 0;
+		// Chapter updates replace the book while the open page is unchanged. Reading the
+		// count here restarted speech after every spine file.
+		const pageCount = untrack(() => book?.pageCount ?? 0);
 		if (!token || !currentSettings || !pageCount) return;
 		const gen = ++viewGen;
 		let cancelled = false;
@@ -626,11 +629,12 @@
 		const nextText = pages[pageIndex] ?? '';
 		attachText(pages);
 		if (book) {
-			const count = done ? Math.max(pages.length, 1) : Math.max(pages.length, book.pageCount, 1);
-			book = { ...book, pageCount: count, chapters: chapters.length ? chapters : (book.chapters ?? []) };
+			const count = publishPageCount(book.pageCount, pages.length, done);
+			const nextChapters = publishChapters(book.chapters, chapters, done);
+			book = { ...book, pageCount: count, chapters: nextChapters };
 			if (pageIndex > book.pageCount - 1) pageIndex = book.pageCount - 1;
 		}
-		if (!epubReady || (done && nextText !== epubPageText)) {
+		if (!epubReady || nextText !== epubPageText) {
 			epubPageText = nextText;
 			epubReady = true;
 			pdfToken += 1;

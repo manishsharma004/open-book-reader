@@ -49,7 +49,16 @@
 	let desired = 0;
 	let markedKey = '';
 	let columnShift = $state(0);
-	let layoutBucket = $state('');
+	let stageReady = $state(false);
+	let reflowTick = $state(0);
+	let laying = false;
+	let laidWidth = 0;
+	let laidHeight = 0;
+	let laidSpread = false;
+	let seenBytes = 0;
+	let reflowBudget = 0;
+	let reflowQueued = false;
+	let layoutGeneration = 0;
 
 	const blocks = new Set(['ADDRESS', 'ARTICLE', 'BLOCKQUOTE', 'DIV', 'DD', 'DT', 'FIGCAPTION', 'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'P', 'PRE', 'SECTION', 'TR']);
 
@@ -202,9 +211,13 @@
 		return () => observer.disconnect();
 	});
 
-	function columnWidth(box: number) {
-		if (!spread) return box;
+	function columnWidth(box: number, wide = spread) {
+		if (!wide) return box;
 		return Math.max(40, Math.floor((box - 16) / 2));
+	}
+
+	function sizeDrift(from: { w: number; h: number; spread: boolean }, to: { w: number; h: number; spread: boolean }) {
+		return to.spread !== from.spread || Math.abs(to.w - from.w) >= 80 || Math.abs(to.h - from.h) >= 160;
 	}
 
 	function load(frame: HTMLIFrameElement, html: string) {
@@ -303,64 +316,123 @@
 		return { texts: runs.map((column) => joinReadingRuns(column)), anchors };
 	}
 
-	$effect(() => {
-		// Reading the raw size here would measure the book again on every footer wrap.
-		const next = `${spread}:${Math.round(width / 48)}:${Math.round(height / 48)}:${data?.byteLength ?? 0}`;
-		if (next !== layoutBucket) layoutBucket = next;
-	});
-
-	$effect(() => {
-		const bucket = layoutBucket;
-		const bytes = data;
-		const frame = probe;
-		if (!bucket || !bytes || !frame) return;
-		const boxWidth = untrack(() => width);
-		const boxHeight = untrack(() => height);
-		const wide = untrack(() => spread);
-		if (boxWidth < 40 || boxHeight < 40) return;
-		let cancelled = false;
-		const widthPx = columnWidth(boxWidth);
-		const limit = pageFrame(widthPx, boxHeight, wide).innerHeight;
-		void (async () => {
-			let book: ParsedEpub;
+	async function measureBook(
+		bytes: ArrayBuffer,
+		frame: HTMLIFrameElement,
+		box: { w: number; h: number; spread: boolean },
+		cancelled: () => boolean
+	) {
+		let book: ParsedEpub;
+		try {
+			book = openEpub(bytes);
+		} catch (caught) {
+			if (!cancelled()) onfail(caught instanceof Error ? caught.message : 'Could not open that EPUB.');
+			return;
+		}
+		const widthPx = columnWidth(box.w, box.spread);
+		const limit = pageFrame(widthPx, box.h, box.spread).innerHeight;
+		const pages: string[] = [];
+		const built: { href: string; html: string; start: number; count: number }[] = [];
+		const starts = new Map<string, number>();
+		const anchors = new Map<string, Map<string, number>>();
+		let stopped = false;
+		for (const item of book.spine) {
+			if (cancelled()) {
+				stopped = true;
+				break;
+			}
+			const html = sectionDocument(book, item.href, widthPx, box.h, box.spread);
+			let laid = { texts: [''], anchors: new Map<string, number>() };
 			try {
-				book = openEpub(bytes);
+				const doc = await load(frame, html);
+				if (cancelled()) {
+					stopped = true;
+					break;
+				}
+				await settle(doc, limit);
+				if (cancelled()) {
+					stopped = true;
+					break;
+				}
+				laid = readColumns(doc, widthPx);
 			} catch (caught) {
-				if (!cancelled) onfail(caught instanceof Error ? caught.message : 'Could not open that EPUB.');
+				if (!cancelled()) onfail(caught instanceof Error ? caught.message : 'Could not lay out that EPUB.');
 				return;
 			}
-			const pages: string[] = [];
-			const built: { href: string; html: string; start: number; count: number }[] = [];
-			const starts = new Map<string, number>();
-			const anchors = new Map<string, Map<string, number>>();
-			for (const item of book.spine) {
-				if (cancelled) return;
-				const html = sectionDocument(book, item.href, widthPx, boxHeight, wide);
-				let laid = { texts: [''], anchors: new Map<string, number>() };
-				try {
-					const doc = await load(frame, html);
-					if (cancelled) return;
-					await settle(doc, limit);
-					if (cancelled) return;
-					laid = readColumns(doc, widthPx);
-				} catch (caught) {
-					if (!cancelled) onfail(caught instanceof Error ? caught.message : 'Could not lay out that EPUB.');
-					return;
+			starts.set(item.href, pages.length);
+			anchors.set(item.href, laid.anchors);
+			const count = Math.max(laid.texts.length, 1);
+			built.push({ href: item.href, html, start: pages.length, count });
+			pages.push(...(laid.texts.length ? laid.texts : ['']));
+			sections = built.slice();
+			onlayout(pages.slice(), chaptersFromToc(book.toc, book.spine, starts, anchors), false);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		if (!stopped && !cancelled()) onlayout(pages.slice(), chaptersFromToc(book.toc, book.spine, starts, anchors), true);
+	}
+
+	$effect(() => {
+		if (!stageReady && width >= 40 && height >= 40) stageReady = true;
+	});
+
+	// Spread turns on once the first section reports a second page. That used to change the
+	// layout key and cancel the spine loop, so the chapter list never left chapter 1.
+	$effect(() => {
+		const bytes = data;
+		const frame = probe;
+		const ready = stageReady;
+		reflowTick;
+		if (!bytes || !frame || !ready) return;
+		const generation = ++layoutGeneration;
+		if (bytes.byteLength !== seenBytes) {
+			seenBytes = bytes.byteLength;
+			reflowBudget = 0;
+		}
+		laying = true;
+		reflowQueued = false;
+		let cancelled = false;
+		const liveBox = () => untrack(() => ({ w: width, h: height, spread }));
+		void (async () => {
+			try {
+				let box = liveBox();
+				if (box.w < 40 || box.h < 40) return;
+				const stale = () => cancelled || generation !== layoutGeneration;
+				await measureBook(bytes, frame, box, stale);
+				if (stale()) return;
+				const drifted = liveBox();
+				if (sizeDrift(box, drifted)) {
+					box = drifted;
+					await measureBook(bytes, frame, box, stale);
 				}
-				starts.set(item.href, pages.length);
-				anchors.set(item.href, laid.anchors);
-				const count = Math.max(laid.texts.length, 1);
-				built.push({ href: item.href, html, start: pages.length, count });
-				pages.push(...(laid.texts.length ? laid.texts : ['']));
-				sections = built.slice();
-				onlayout(pages.slice(), chaptersFromToc(book.toc, book.spine, starts, anchors), false);
-				await new Promise((resolve) => setTimeout(resolve, 0));
+				if (stale()) return;
+				laidWidth = box.w;
+				laidHeight = box.h;
+				laidSpread = box.spread;
+				const now = liveBox();
+				if (sizeDrift(box, now) && reflowBudget < 2) {
+					reflowBudget += 1;
+					reflowQueued = true;
+					reflowTick += 1;
+				}
+			} finally {
+				if (generation === layoutGeneration) laying = false;
 			}
-			if (!cancelled) onlayout(pages.slice(), chaptersFromToc(book.toc, book.spine, starts, anchors), true);
 		})();
 		return () => {
 			cancelled = true;
 		};
+	});
+
+	$effect(() => {
+		const w = width;
+		const h = height;
+		const wide = spread;
+		const ready = stageReady;
+		if (!ready || !data || w < 40 || h < 40 || laying || laidWidth === 0 || reflowQueued || reflowBudget >= 2) return;
+		if (!sizeDrift({ w: laidWidth, h: laidHeight, spread: laidSpread }, { w, h, spread: wide })) return;
+		reflowQueued = true;
+		reflowBudget += 1;
+		reflowTick += 1;
 	});
 
 	function place(doc: Document, section: { href: string; start: number; count: number }, widthPx: number) {
