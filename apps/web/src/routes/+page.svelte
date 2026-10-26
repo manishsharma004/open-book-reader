@@ -255,6 +255,12 @@
 					Unlock and add
 				</Button>
 			{/if}
+			{#if busy}
+				<div class="flex items-center gap-3" data-add-loader>
+					<div class="border-muted border-t-primary size-8 animate-spin rounded-full border-2"></div>
+					<p class="text-sm font-medium">Reading the book…</p>
+				</div>
+			{/if}
 			{#if error}
 				<p class="text-destructive text-sm">{error}</p>
 			{/if}
