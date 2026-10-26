@@ -75,6 +75,7 @@
 	let pdf: PDFDocumentProxy | null = null;
 	let viewGen = 0;
 	let paintGen = 0;
+	let paintTail: Promise<unknown> = Promise.resolve();
 	let playToken = 0;
 	let resumeWord = 0;
 	let heldAudioTime: number | null = null;
@@ -448,7 +449,16 @@
 		return next;
 	}
 
-	async function paint() {
+	function paint() {
+		const run = paintTail.then(() => drawSpread());
+		paintTail = run.then(
+			() => undefined,
+			() => undefined
+		);
+		return run;
+	}
+
+	async function drawSpread() {
 		const gen = ++paintGen;
 		if (book?.kind === 'text') return;
 		if (!pdf || !canvas || !stage || !prepared) return;
