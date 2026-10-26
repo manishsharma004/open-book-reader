@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
 	import EpubStage from '#lib/components/epub-stage.svelte';
+	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
@@ -1463,14 +1464,36 @@
 					{/each}
 				</select>
 				{#if settings.tts.vendor === 'browser'}
+					<span class="inline-flex items-center gap-1">
 					<select class={field} value={settings.voiceName} onchange={onVoice} aria-label="Voice">
 						<option value="">Browser default voice</option>
 						{#each voices as voice, index (`${index}:${voice.voiceURI}`)}
 							<option value={voice.voiceURI || voice.name}>{voice.name || voice.voiceURI || `Voice ${index + 1}`}</option>
 						{/each}
 					</select>
+					<VoiceIdInfo
+						vendor="browser"
+						side="up"
+						onpick={async (id) => {
+							if (!settings) return;
+							settings.voiceName = id;
+							await commitSettings();
+						}}
+					/>
+					</span>
 				{:else}
-					<input class="{field} w-36" value={settings.tts.voice} aria-label="Voice id" onchange={onVendorVoice} />
+					<span class="inline-flex items-center gap-1">
+						<input class="{field} w-36" value={settings.tts.voice} aria-label="Voice id" onchange={onVendorVoice} />
+						<VoiceIdInfo
+							vendor={settings.tts.vendor}
+							side="up"
+							onpick={async (id) => {
+								if (!settings) return;
+								settings.tts.voice = id;
+								await commitSettings();
+							}}
+						/>
+					</span>
 				{/if}
 				{#if settings.cloneBlobId || settings.cloneFileName}
 					<span class="text-muted-foreground max-w-40 truncate text-xs" data-voice-sample>

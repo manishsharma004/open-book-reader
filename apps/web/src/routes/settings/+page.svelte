@@ -9,6 +9,7 @@
 	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import type { Palette } from '#lib/theme.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
+	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 
 	type Health = { version: string; ffmpeg: boolean; maxBodyBytes: number };
 
@@ -292,7 +293,16 @@
 						<Input id="tts-model" bind:value={settings.tts.model} />
 					</div>
 					<div class="grid gap-1.5">
-						<Label for="tts-voice">Voice id</Label>
+						<div class="flex items-center gap-1">
+							<Label for="tts-voice">Voice id</Label>
+							<VoiceIdInfo
+								vendor={settings.tts.vendor}
+								onpick={(id) => {
+									if (settings.tts.vendor === 'browser') settings.voiceName = id;
+									else settings.tts.voice = id;
+								}}
+							/>
+						</div>
 						<Input id="tts-voice" bind:value={settings.tts.voice} />
 					</div>
 				</div>
