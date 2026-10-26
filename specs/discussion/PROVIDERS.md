@@ -11,6 +11,7 @@ This file covers:
 5. Vendor tables for [text](#5-text-vendors), [speech](#6-speech-vendors), and [timing](#7-timing-vendors).
 6. [Emotion mapping](#8-emotion-mapping) per speech engine.
 7. [Probe, model lists, and voice preview](#9-probe-model-lists-and-voice-preview).
+8. [Open-book providers](#10-open-book-providers): one interface, the routes, and the catalogs registered on 26 October 2026.
 
 ## 1. The settings document
 
@@ -147,7 +148,7 @@ Typical mode A layouts:
 
 ## 3. Proxy contract
 
-All routes are under `/v1`. All take JSON except `/v1/align`, which takes `multipart/form-data` because it carries audio.
+Model routes are under `/v1`. They take JSON except `/v1/align`, which takes `multipart/form-data` because it carries audio. Open-book routes do not use this envelope and carry no profile. They are in [Open-book providers](#10-open-book-providers).
 
 ### 3.1 Envelope
 
@@ -175,6 +176,7 @@ All routes are under `/v1`. All take JSON except `/v1/align`, which takes `multi
 | `POST /v1/align` | form parts `request` (envelope JSON with `payload: { "language", "prompt" }`) and `audio` | `{ "words": [{ "text", "startMs", "endMs" }], "model": "..." }` |
 | `POST /v1/probe` | envelope with `kind` `text`, `speech`, or `timing` | see [Probe](#9-probe-model-lists-and-voice-preview) |
 | `GET /v1/health` | none | `{ "version", "ffmpeg": true, "maxBodyBytes" }` |
+| Open books | none of this envelope | [Open-book providers](#10-open-book-providers) |
 
 `/v1/speak` returns JSON with base64 audio. A 20-second utterance at 32 kbps is about 80 KB, about 107 KB encoded, so the overhead does not matter and timings arrive in the same response.
 
@@ -215,7 +217,7 @@ The proxy holds no data, but it is a request forwarder that receives API keys. I
 | Origin check | Requests with an `Origin` header must match the app's own origin or `CORS_ORIGINS` | Another website open in the same browser cannot call the proxy |
 | Host check | `Host` must be in `ALLOWED_HOSTS` (default: `localhost`, `127.0.0.1`, and the configured public name) | DNS rebinding |
 | Forwarding targets | Completion: Ollama at `127.0.0.1`, `localhost`, or `::1` on port 11434; an LLM on port 5173 at those loopback hosts or at `127.0.0.1`; plus `https://ollama.com`. Speech: Kokoro on port 8880 and Pocket TTS on port 7508 at those loopback hosts or at `127.0.0.1`, `https://api.openai.com`, and `https://api.elevenlabs.io`. `OLLAMA_ALLOW` and `SPEECH_ALLOW` add exact `host` or `host:port` entries (a completion entry without a port uses 11434; a speech entry must include a port). No CIDR, and no other path than the one the route builds. Link-local and metadata (`169.254.0.0/16`, `fd00:ec2::254`) are refused even if listed | The base URL is chosen by the caller. An open forward would let that caller reach the rest of the local network |
-| Redirects | Not followed | A vendor redirect could move the request and its key to another host |
+| Redirects | Not followed for completion, speech, align, and probe. An open-book file or cover follows a redirect only when the next host is on that provider's list, and at most three times | A vendor redirect could move a key to another host. An open-book fetch carries no key, and the next host is still one that provider named |
 | Credentials | Vendor keys are taken only from named profile fields and sent only to `baseUrl`'s host | `extraHeaders` cannot carry a second key |
 | Logging | Each `/v1` response logs method, route, vendor, status, and duration. A browser crash also posts `/v1/log` with the page route and a short error message. No bodies, headers, keys, tokens, book text, or URLs with query strings | Book text and keys must not land in server logs |
 | Temporary files | Deleted before the response finishes | Stateless |
@@ -331,3 +333,100 @@ The settings screen uses the result:
 - If structured output failed, it switches `structuredOutput` to the next mode down and probes again.
 
 Probe sends no book text and writes nothing in the book.
+
+## 10. Open-book providers
+
+Checked from this machine on 26 October 2026. Designed, not built. The product side is [Open books](https://github.com/manishsharma004/open-book-reader/blob/main/specs/discussion/DESIGN.md#611-open-books). The screen is in `UX.md`.
+
+A provider is an extension of the proxy and of the browse screen. The screen and the routes do not branch on which catalog they are talking to. They call the same three operations, and they render the same book fields. A new legal source is a new module and one line in the registry. It is not a new route, a new card, or a new way into the library.
+
+### 10.1 The interface
+
+Each provider is one module under `apps/server/open_book/open_books/`. The registry is a tuple in that package. Registration is appending an instance. The web app does not import these modules.
+
+Every module exposes the same fields and methods:
+
+| Member | Meaning |
+| --- | --- |
+| `id` | Stable token used in the route. Lowercase, no spaces |
+| `name` | The chip label |
+| `search` | `true` when a query is sent to the catalog. `false` when the module only has a fixed list, such as new releases. The search box does not apply |
+| `languages` | Language codes the module can filter on. Empty means it does not filter |
+| `note` | One short line on the chip when the reader needs it. Empty when there is nothing to say |
+| `hosts` | The only hosts this module may contact. Written in the module, not in settings and not in the response |
+| `search(q, language, page)` | Books, and an opaque next-page token when the catalog has another page. `page` is that token, or empty for the first page. It is never a URL |
+| `file(id, mediaType)` | Bytes, media type, and filename for one format of one book |
+| `cover(id)` | Image bytes and media type, or nothing when the catalog has no cover |
+
+`search` returns only books the source marks as public domain or under a license that lets the reader keep a copy. The route checks again and drops anything else, including a book with no license. The two values the browser may see are `public-domain` and `open-license`. An open license the card can name is CC0, CC BY, CC BY-SA, or a license the source states in the same terms. Borrow-only, lending, print-disabled, freemium, patron-only, and unknown are dropped inside the module.
+
+A book object has provider, id, title, authors, languages, year, `license`, a short license note, and formats. Each format is a media type, a label, and `addable`. There is no URL field. `application/pdf` and `text/plain` are addable. A charset on text is normalized to `text/plain`. `application/epub+zip` is listed with `addable: false`. Any other media type is omitted.
+
+`file` is called only for an addable type the search result listed. The bytes go back to the browser, which hashes them and stores them the same way as a file from disk. The provider does not paginate text. The browser does, as [Open books](https://github.com/manishsharma004/open-book-reader/blob/main/specs/discussion/DESIGN.md#611-open-books) describes.
+
+### 10.2 Routes
+
+These routes take no profile and no API key. The server stores nothing: not the query, not the page, not the file.
+
+| Route | Request | Response |
+| --- | --- | --- |
+| `GET /v1/open-books/providers` | none | The registry: id, name, `search`, languages, note. No hosts |
+| `GET /v1/open-books/{provider}` | `q`, `language`, `page` | `{ "books": [...], "page": "<next token or null>" }`. A provider with `search: false` ignores `q` and returns its fixed list |
+| `POST /v1/open-books/{provider}/{id}` | `{ "mediaType": "text/plain" }` | The file bytes, `Content-Type` set to that media type, `Content-Disposition` carrying the filename |
+| `GET /v1/open-books/{provider}/{id}/cover` | none | The image, or 404 when `cover` returned nothing |
+
+An unknown provider id is 404. A media type that is not addable for that book is 404. The log line is method, route, provider id, status, and duration. It does not include `q`, the book id's query, or the source URL.
+
+The fetch uses the provider's `hosts` and nothing else. It follows a redirect only when the next host is on that list, and at most three times. Speech, completion, align, and probe still do not follow redirects. A response larger than 40 MB is dropped. The exchange times out at 60 seconds. The browse screen asks for one page at a time. It does not walk a catalog.
+
+One provider speaks HTTP because its catalog host does not answer on HTTPS: `aozora.textlive.net`. No other provider may use HTTP. The proxy sets one User-Agent that names this app. It does not send the reader's keys, cookie, or book text.
+
+### 10.3 Registered providers
+
+Each row answered from this machine on 26 October 2026. A third-party catalog list was only a lead (checked by its author on 24 August 2026). A feed that did not answer is not in this table.
+
+| `id` | Catalog contacted | What it gives | `search` | Hosts the module may use |
+| --- | --- | --- | --- | --- |
+| `gutenberg` | `https://www.gutenberg.org/ebooks/search.opds/` returned Atom XML. A language filter is `query=l.{code}` | Project Gutenberg, US public domain. Their offline-catalogs page says the XML OPDS feed is expected to sunset in 2027, and the OPDS2 JSON feed is testing-only. Until then this module uses the Atom feed that answered | yes | `www.gutenberg.org` |
+| `openlibrary` | `https://openlibrary.org/search.json` with `ebook_access=public` returned JSON | Open Library records that are public-domain ebooks. The module always sends `ebook_access=public`. Borrowable, print-disabled, and controlled digital lending are dropped. The file host is `archive.org` for those public items only | yes | `openlibrary.org`, `archive.org` |
+| `standardebooks` | `https://standardebooks.org/feeds/atom/new-releases` returned Atom with enclosure links. `https://standardebooks.org/feeds/opds` returned 401 | Standard Ebooks, public domain on the website. The full catalog feed is for patrons. This module uses the public new-releases feed and does not read HTML pages | no. The note is "New releases" | `standardebooks.org` |
+| `ebooksgratuits` | `https://www.ebooksgratuits.com/opds/` returned XML | French public-domain classics | yes | `www.ebooksgratuits.com` |
+| `wolnelektury` | `https://wolnelektury.pl/opds/` returned Atom | Polish free texts | yes | `wolnelektury.pl` |
+| `textos` | `https://textos.info/opds` returned XML | Spanish public domain | yes | `textos.info` |
+| `aozora` | `http://aozora.textlive.net/catalog.opds` returned Atom. HTTPS on that host did not answer | Japanese public domain | yes | `aozora.textlive.net` over HTTP only |
+| `imwerden` | `https://imwerden.de/opds/` returned an Atom navigation feed | A book is included only when that entry is marked free to copy | yes | `imwerden.de` |
+| `bokselskap` | `https://www.bokselskap.no/wp-content/themes/bokselskap/tekster/opds/root.xml` returned XML | Norwegian public-domain editions | yes | `www.bokselskap.no` |
+| `cbeta` | `https://www.cbeta.org/opds` returned XML | Chinese Buddhist canon, free to copy. Acquisition links in the feed may contain `&amp;`. The module decodes that before it fetches, or the download is empty | yes | `www.cbeta.org` |
+| `openedition` | `https://opds.openedition.org/` returned XML | Open-access books. Freemium entries are dropped. A file host is added to this module only after a download from that host succeeds | yes | `opds.openedition.org`, plus file hosts added the same way |
+| `wikisource` | `https://en.wikisource.org/w/api.php` search returned JSON | One provider. `language` selects the wiki. The module starts with `en.wikisource.org` and lists each further wiki host it enables. Public domain and free licenses only. The file is that wiki's plain-text export | yes | Each `{lang}.wikisource.org` the module lists |
+
+Gutendex (`gutendex.com`) answered for a known Gutenberg id and timed out on a search. It describes the same Project Gutenberg catalog, so it is not a second provider.
+
+`archive.org` is a file host for `openlibrary` only. The old `bookserver.archive.org` catalog did not answer and is not a provider. Open Library asks callers to send a User-Agent, to cache, and not to harvest the catalog. This server still stores nothing. The screen requests a page when the reader asks for one.
+
+### 10.4 Not registered
+
+These were considered and left out. A later module can register one of the legal rows after a fetch from this app succeeds and the license rule in §10.1 holds. The last two groups are not candidates.
+
+| Source | What happened on 26 October 2026 | Why it is not a provider |
+| --- | --- | --- |
+| Gallica OPDS `https://gallica.bnf.fr/opds` | 403, including with a browser User-Agent | Legal public-domain collection. Register it only after a fetch succeeds |
+| Faded Page search | Timed out at 15 seconds | No answer to register against |
+| Feedbooks public domain (Cantook) | Empty feed | Nothing to list |
+| ManyBooks | 403 from Cloudflare | No answer to register against |
+| OAPEN OPDS | Empty or 500 | Nothing to list |
+| Hungarian MEK OPDS | Navigation feed with no book entries | Nothing to list |
+| Internet Archive bookserver | `bookserver.archive.org` did not answer | Dead catalog. Public files still arrive through `openlibrary` |
+| O'Reilly Japan, Gihyo, Tatsu-zine | Not probed as free libraries | Publisher catalogs, not books the source gives away |
+| Gutenberg Australia and similar sites | Not used | A book that is public domain in one country can still be under copyright elsewhere. This reader does not offer that set |
+| Libgen, Z-Library, Anna's Archive, PDF Drive | Not contacted | Not legal sources. Never a provider |
+| Chitanka and similar scan libraries | Not contacted | Translation copyright is not clear. Out unless a feed marks a free license on the entry |
+
+### 10.5 Adding a provider
+
+1. Add a module that implements §10.1, with its hosts written in that file.
+2. Append it to the registry tuple.
+3. Confirm a search and a file fetch against the live catalog, and confirm a book that is not public domain or open-license is absent from the response.
+4. Leave the browse screen, the routes, and the upload path as they are.
+
+A provider that needs a new response field, a new button, or its own screen is the wrong shape. Change the shared book fields first, for every provider, or do not add it.

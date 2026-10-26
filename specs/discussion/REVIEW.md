@@ -156,6 +156,7 @@ The questions in the earlier `DESIGN.md` §14 are decided in the current §14. S
 | D9 | Vision retry is off until the reader opts in per book |
 | D10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs |
 | D11 | Kokoro runs as its own compose service. It is not baked into the app image, and no text model is bundled |
+| D12 | Open books use one provider interface. A new legal source is a module, not a new screen. Only public-domain and open-license files are offered. PDF and plain text can be kept; EPUB waits |
 
 ## 9. Stack
 
