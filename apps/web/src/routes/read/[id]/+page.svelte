@@ -1016,7 +1016,7 @@
 						<div class="bg-background/80 absolute inset-0 z-10 flex items-center justify-center">
 							<div class="bg-card border-border flex w-72 flex-col items-center gap-3 rounded-xl border px-6 py-5 shadow-sm">
 								<div class="border-muted border-t-primary size-10 animate-spin rounded-full border-2"></div>
-								<p class="text-sm font-medium">Buffering page {pageIndex + 1}</p>
+								<p class="text-sm font-medium">{prepared ? `Buffering page ${pageIndex + 1}` : 'Opening the book…'}</p>
 								<p class="text-muted-foreground text-center text-xs">{pipeline.live || bufferLabel}</p>
 							</div>
 						</div>
