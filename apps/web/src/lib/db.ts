@@ -83,6 +83,16 @@ export async function saveBook(book: Book, source: Blob, cover: Blob | null) {
 	await tx.done;
 }
 
+/** Keep a cover on a book that was saved without one. */
+export async function storeCover(book: Book, cover: Blob): Promise<void> {
+	if (!book.coverId) throw new Error('This book has no cover id.');
+	const database = await db();
+	const tx = database.transaction(['books', 'blobs'], 'readwrite');
+	await tx.objectStore('blobs').put({ id: book.coverId, kind: 'cover', blob: cover });
+	await tx.objectStore('books').put(book);
+	await tx.done;
+}
+
 export async function updateBook(book: Book) {
 	await (await db()).put('books', book);
 }

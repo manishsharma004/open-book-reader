@@ -313,7 +313,7 @@ Every source is a provider with the same three operations. The browser and the b
 | `search(q, language, page)` | books, and the next page if there is one |
 | `file(id, mediaType)` | the bytes, the media type, and a filename |
 
-A book the browser is allowed to see has provider, id, title, authors, languages, year, `license` (`public-domain` or `open-license`), a short license note, and formats. Each format is a media type, a label, and `addable`. The browser is not given the source URL. A cover is `GET /v1/open-books/{provider}/{id}/cover` on this origin.
+A book the browser is allowed to see has provider, id, title, authors, languages, year, `license` (`public-domain` or `open-license`), a short license note, and formats. Each format is a media type, a label, and `addable`. The browser is not given the source URL. A cover is `GET /v1/open-books/{provider}/{id}/cover` on this origin. When a file is kept, that cover image is stored with the book and is the cover in the library. A file that was kept earlier without a cover gets this image the next time it is added.
 
 `application/pdf` is addable and opens in the reader that exists. `text/plain` is addable because these catalogs usually publish text rather than PDF. The browser paginates that text into pages of about 1,800 characters, breaking on paragraphs, and speaks it with the same clips. The page is text, not a PDF canvas, and the highlight is a span on that text. Project Gutenberg `application/epub+zip` is addable. The browser keeps the EPUB package and draws each section from its HTML, CSS, and images, paged into columns. Other catalogs still list EPUB with `addable: false` until that provider's download exists. The card says so.
 

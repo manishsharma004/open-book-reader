@@ -1,17 +1,24 @@
 import { chaptersFromDocument, chaptersFromText, type Chapter } from '#lib/chapters.js';
-import { findBookByHash, saveBook, sha256, type Book } from '#lib/db.js';
+import { findBookByHash, saveBook, sha256, storeCover, type Book } from '#lib/db.js';
 import { openEpub, spineIndex, type EpubToc } from '#lib/epub.js';
 import { randomId } from '#lib/hash.js';
 import { coverBlob, openPdf } from '#lib/pdf.js';
 import { paginateText } from '#lib/text-book.js';
 
-export async function savePdfFile(file: File, password?: string): Promise<{ book: Book; existing: boolean }> {
+async function keepCover(existing: Book, cover: Blob | null): Promise<Book> {
+	if (!cover || existing.coverId) return existing;
+	const next = { ...existing, coverId: randomId() };
+	await storeCover(next, cover);
+	return next;
+}
+
+export async function savePdfFile(file: File, password?: string, cover: Blob | null = null): Promise<{ book: Book; existing: boolean }> {
 	const hash = await sha256(file);
 	const existing = await findBookByHash(hash);
-	if (existing) return { book: existing, existing: true };
+	if (existing) return { book: await keepCover(existing, cover), existing: true };
 	const pdf = await openPdf(await file.arrayBuffer(), password);
 	const first = await pdf.getPage(1);
-	const cover = await coverBlob(first);
+	const pageCover = cover ?? (await coverBlob(first));
 	const meta = await pdf.getMetadata().catch(() => null);
 	const info = meta?.info as { Title?: string } | undefined;
 	const chapters = await chaptersFromDocument(pdf).catch(() => []);
@@ -26,15 +33,15 @@ export async function savePdfFile(file: File, password?: string): Promise<{ book
 		kind: 'pdf',
 		chapters
 	};
-	await saveBook(book, file, cover);
+	await saveBook(book, file, pageCover);
 	await pdf.cleanup();
 	return { book, existing: false };
 }
 
-export async function saveTextFile(file: File, title: string): Promise<{ book: Book; existing: boolean }> {
+export async function saveTextFile(file: File, title: string, cover: Blob | null = null): Promise<{ book: Book; existing: boolean }> {
 	const hash = await sha256(file);
 	const existing = await findBookByHash(hash);
-	if (existing) return { book: existing, existing: true };
+	if (existing) return { book: await keepCover(existing, cover), existing: true };
 	const pages = paginateText(await file.text());
 	const book: Book = {
 		id: randomId(),
@@ -43,11 +50,11 @@ export async function saveTextFile(file: File, title: string): Promise<{ book: B
 		pageCount: pages.length,
 		addedAt: Date.now(),
 		blobId: randomId(),
-		coverId: null,
+		coverId: cover ? randomId() : null,
 		kind: 'text',
 		chapters: chaptersFromText(pages)
 	};
-	await saveBook(book, file, null);
+	await saveBook(book, file, cover);
 	return { book, existing: false };
 }
 
@@ -62,12 +69,13 @@ function tocChapters(toc: EpubToc[], spine: { href: string }[]): Chapter[] {
 	});
 }
 
-export async function saveEpubFile(file: File, title = ''): Promise<{ book: Book; existing: boolean }> {
+export async function saveEpubFile(file: File, title = '', cover: Blob | null = null): Promise<{ book: Book; existing: boolean }> {
 	const hash = await sha256(file);
 	const existing = await findBookByHash(hash);
-	if (existing) return { book: existing, existing: true };
+	if (existing) return { book: await keepCover(existing, cover), existing: true };
 	const parsed = openEpub(await file.arrayBuffer());
-	const cover = parsed.cover ? new Blob([parsed.cover], { type: parsed.coverType || 'image/jpeg' }) : null;
+	const embedded = parsed.cover ? new Blob([parsed.cover], { type: parsed.coverType || 'image/jpeg' }) : null;
+	const chosen = cover ?? embedded;
 	const book: Book = {
 		id: randomId(),
 		title: title.trim() || parsed.title || file.name.replace(/\.epub$/i, ''),
@@ -75,10 +83,10 @@ export async function saveEpubFile(file: File, title = ''): Promise<{ book: Book
 		pageCount: parsed.spine.length,
 		addedAt: Date.now(),
 		blobId: randomId(),
-		coverId: cover ? randomId() : null,
+		coverId: chosen ? randomId() : null,
 		kind: 'epub',
 		chapters: tocChapters(parsed.toc, parsed.spine)
 	};
-	await saveBook(book, file, cover);
+	await saveBook(book, file, chosen);
 	return { book, existing: false };
 }
