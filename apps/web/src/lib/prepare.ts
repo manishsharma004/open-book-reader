@@ -1,4 +1,5 @@
 import { cancelOcr, readPage } from '#lib/ocr.js';
+import { wordsForPage } from '#lib/text-book.js';
 import { logPipeline } from '#lib/pipeline.svelte.js';
 import { canonEmotion, PROSODY } from '#lib/speech.js';
 import {
@@ -73,6 +74,7 @@ let activeJob: Job | null = null;
 let activeClip: SpeechClip | null = null;
 let pumping = false;
 let pdf: PDFDocumentProxy | null = null;
+let textPages: string[] | null = null;
 const listeners = new Set<() => void>();
 
 let emitQueued = false;
@@ -154,14 +156,25 @@ function release(page: PreparedPage) {
 	for (const url of urls) URL.revokeObjectURL(url);
 }
 
-export function attachDocument(next: PDFDocumentProxy | null) {
-	pdf = next;
+function resetDocument() {
 	abortPending();
 	for (const job of jobs) settleReject(job, new DOMException('Skipped', 'AbortError'));
 	jobs = [];
 	for (const page of cache.values()) release(page);
 	cache.clear();
 	emit();
+}
+
+export function attachDocument(next: PDFDocumentProxy | null) {
+	pdf = next;
+	textPages = null;
+	resetDocument();
+}
+
+export function attachText(pages: string[] | null) {
+	textPages = pages;
+	pdf = null;
+	resetDocument();
 }
 
 function remember(key: string, page: PreparedPage) {
@@ -487,10 +500,22 @@ async function pumpSpeech() {
 }
 
 async function doPrepare(index: number, settings: AppSettings, lead: boolean, signal: AbortSignal): Promise<PreparedPage> {
-	if (!pdf) throw new Error('The book is not open.');
+	if (!pdf && !textPages) throw new Error('The book is not open.');
 	const pageNumber = index + 1;
 	const started = performance.now();
+	if (textPages) {
+		const laid = wordsForPage(textPages[index] ?? '');
+		logPipeline({
+			page: pageNumber,
+			stage: 'text',
+			status: 'ok',
+			ms: Math.round(performance.now() - started),
+			detail: `${laid.words.length} words from the text page. ${laid.text.slice(0, 700)}`
+		});
+		return assemble(index, { ...laid, source: 'text', confidence: null }, settings, lead, signal);
+	}
 	logPipeline({ page: pageNumber, stage: 'text', status: 'start', ms: null, detail: 'Reading the page' });
+	if (!pdf) throw new Error('The book is not open.');
 	const pdfPage = await pdf.getPage(pageNumber);
 	let extracted;
 	try {
@@ -532,6 +557,17 @@ async function doPrepare(index: number, settings: AppSettings, lead: boolean, si
 		});
 	}
 
+	return assemble(index, extracted, settings, lead, signal);
+}
+
+function assemble(
+	index: number,
+	extracted: { words: PageWord[]; text: string; source: 'text' | 'ocr'; confidence: number | null },
+	settings: AppSettings,
+	lead: boolean,
+	signal: AbortSignal
+): PreparedPage {
+	const pageNumber = index + 1;
 	const pace = speechPace(settings.speechPace);
 	const clauses = oneClause(extracted.words, extracted.text, settings.emotion === 'auto' ? 'neutral' : canonEmotion(settings.emotion));
 	const clips = extracted.text ? makeClips(extracted.words, clauses, pace) : [];
