@@ -11,6 +11,7 @@
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
+	import PocketDeviceBadge from '#lib/components/pocket-device-badge.svelte';
 
 	type Health = { version: string; ffmpeg: boolean; maxBodyBytes: number };
 
@@ -290,6 +291,9 @@
 						<option value="openai">OpenAI-compatible</option>
 						<option value="elevenlabs">ElevenLabs</option>
 					</select>
+					{#if settings.tts.vendor === 'pocket-device'}
+						<PocketDeviceBadge />
+					{/if}
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="tts-url">Base URL</Label>

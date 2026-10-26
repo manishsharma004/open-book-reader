@@ -5,6 +5,7 @@
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
+	import PocketDeviceBadge from '#lib/components/pocket-device-badge.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
@@ -1512,6 +1513,9 @@
 					</span>
 					<Button id="remove-sample" variant="destructive" size="sm" onclick={removeSample}>Remove sample</Button>
 				{/if}
+			{/if}
+			{#if settings?.tts.vendor === 'pocket-device'}
+				<PocketDeviceBadge />
 			{/if}
 			<p class="text-muted-foreground text-xs">
 				{bufferLabel}

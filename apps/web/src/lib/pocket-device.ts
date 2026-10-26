@@ -1,5 +1,7 @@
 import { logPipeline } from '#lib/pipeline.svelte.js';
 import { chunksToWavBlob, PocketTTS } from '#lib/pocket-onnx/index.js';
+import { pocketDeviceKind, pocketDeviceTitle } from '#lib/pocket-onnx/providers.js';
+import { setPocketRunDevice } from '#lib/pocket-run.svelte.js';
 import { POCKET_DEVICE_MODEL, POCKET_ONNX_BASE, POCKET_VOICE, type TtsSettings } from '#lib/settings.js';
 import type { SpeechResult } from '#lib/vendor.js';
 
@@ -31,8 +33,9 @@ async function monoPcm(bytes: Uint8Array): Promise<{ pcm: Float32Array; rate: nu
 }
 
 function noteProgress(info: { type?: string; label?: string; loaded?: number; total?: number; status?: string; device?: string; fromCache?: boolean }) {
+	if (info.device && pocketDeviceKind(info.device)) setPocketRunDevice(info.device);
 	if (info.type === 'status') {
-		const device = info.device ? ` (${info.device})` : '';
+		const device = info.device && pocketDeviceTitle(info.device) ? ` (${pocketDeviceTitle(info.device)})` : '';
 		logPipeline({
 			page: 0,
 			stage: 'tts',
@@ -69,6 +72,7 @@ async function engineFor(settings: TtsSettings, cloning: boolean): Promise<Engin
 		webnn: true
 	}) as Engine;
 	await next.load((info) => noteProgress(info));
+	if (next.device && pocketDeviceKind(next.device)) setPocketRunDevice(next.device);
 	engine = next;
 	engineKey = key;
 	return next;
@@ -123,7 +127,7 @@ export function speakPocketDevice(
 		}
 		if (signal?.aborted) throw new DOMException('Skipped', 'AbortError');
 		const blob = chunksToWavBlob(chunks, active.sampleRate);
-		const device = active.device || 'wasm';
+		const device = pocketDeviceTitle(active.device || 'wasm') || 'CPU';
 		const reference = sample ? 'The saved sample was the reference. ' : '';
 		return {
 			blob,
