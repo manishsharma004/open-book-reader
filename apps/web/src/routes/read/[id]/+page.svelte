@@ -1,17 +1,22 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
-	import { getBlob, getBook, updateBook, type Book } from '#lib/db.js';
+	import { deleteBook, getBlob, getBook, updateBook, type Book } from '#lib/db.js';
+	import { gutenbergEbookId } from '#lib/gutenberg.js';
+	import { replaceWithEpub } from '#lib/library.js';
+	import { downloadCover, downloadOpenBook } from '#lib/open-books.js';
 	import { openPdf, type PageWord } from '#lib/pdf.js';
 	import { paginateText } from '#lib/text-book.js';
 	import { logPipeline, pipeline } from '#lib/pipeline.svelte.js';
 	import {
 		attachDocument,
 		attachText,
+		laidTextPage,
 		bufferSnapshot,
 		bufferSpeech,
 		cachedPage,
@@ -358,18 +363,12 @@
 	$effect(() => {
 		const index = companionIndex;
 		const kind = book?.kind;
-		const current = settings;
-		if (index < 0 || kind !== 'text' || !current) {
+		if (index < 0 || kind !== 'text') {
 			companionWords = [];
 			return;
 		}
-		let cancelled = false;
-		void ensurePage(index, current).then((page) => {
-			if (!cancelled && page.pageIndex === index) companionWords = page.words;
-		});
-		return () => {
-			cancelled = true;
-		};
+		const laid = laidTextPage(index);
+		companionWords = laid?.words ?? [];
 	});
 
 	$effect(() => {
@@ -427,7 +426,32 @@
 			void pdf?.cleanup();
 			pdf = null;
 			if (found.kind === 'text') {
-				const pages = paginateText(await blob.text());
+				const raw = await blob.text();
+				if (cancelled) return;
+				const ebook = gutenbergEbookId(raw);
+				if (ebook) {
+					try {
+						const file = await downloadOpenBook('gutenberg', ebook, 'application/epub+zip', found.title);
+						const picture = await downloadCover('gutenberg', ebook);
+						if (cancelled) return;
+						const upgraded = await replaceWithEpub(found, file, picture);
+						if (cancelled) return;
+						if (upgraded.id !== found.id) {
+							await deleteBook(found);
+							if (!cancelled) await goto(`/read/${upgraded.id}`);
+							return;
+						}
+						book = upgraded;
+						attachDocument(null);
+						attachText(null);
+						epubData = await file.arrayBuffer();
+						pageIndex = 0;
+						return;
+					} catch {
+						if (cancelled) return;
+					}
+				}
+				const pages = paginateText(raw);
 				attachText(pages);
 				if (found.chapters == null) void rememberChapters(found, chaptersFromText(pages));
 			} else if (found.kind === 'epub') {

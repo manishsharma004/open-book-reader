@@ -88,7 +88,7 @@ def download(provider_id: str, book_id: str, body: FileBody, request: Request) -
     provider = _provider(provider_id, request)
     media_type = body.mediaType.split(";", 1)[0].strip().lower()
     data, media, filename = _call(lambda: provider.file(book_id, media_type))
-    if media not in {"text/plain", "application/pdf"}:
+    if media not in {"text/plain", "application/pdf", "application/epub+zip"}:
         raise HTTPException(404, "That format is not available.")
     disposition = "attachment; filename*=UTF-8''" + quote(filename)
     return Response(content=data, media_type=media, headers={"Content-Disposition": disposition, "Cache-Control": "no-store"})

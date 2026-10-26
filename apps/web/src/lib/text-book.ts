@@ -55,7 +55,8 @@ export function wordsForPage(pageText: string): PageText {
 	for (const paragraph of pageText.split(/\n{2,}/)) {
 		const parts = [...segmenter.segment(expandLigatures(paragraph))];
 		const wordCount = parts.filter((part) => part.isWordLike).length;
-		const heading = wordCount > 0 && wordCount <= 12 && paragraph.trim().length < 80 && !/[.!?…]$/u.test(paragraph.trim());
+		const illustration = /^\[illustration\b/i.test(paragraph.trim());
+		const heading = !illustration && wordCount > 0 && wordCount <= 12 && paragraph.trim().length < 80 && !/[.!?…]$/u.test(paragraph.trim());
 		const height = heading ? 22 : 16;
 		let x = 48;
 		for (const part of parts) {

@@ -12,7 +12,7 @@ import {
 import { spokenClipText } from '#lib/page-roles.js';
 import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
-import type { PageWord } from '#lib/pdf.js';
+import type { PageText, PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 export type Clause = {
@@ -175,6 +175,12 @@ export function attachText(pages: string[] | null) {
 	textPages = pages;
 	pdf = null;
 	resetDocument();
+}
+
+/** Words for a text page that is already in memory, without waiting for speech. */
+export function laidTextPage(index: number): PageText | null {
+	if (!textPages || index < 0 || index >= textPages.length) return null;
+	return wordsForPage(textPages[index] ?? '');
 }
 
 function remember(key: string, page: PreparedPage) {

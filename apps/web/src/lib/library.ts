@@ -90,3 +90,24 @@ export async function saveEpubFile(file: File, title = '', cover: Blob | null = 
 	await saveBook(book, file, chosen);
 	return { book, existing: false };
 }
+
+/** Keep the same library card, with the EPUB in place of a plain-text transcription. */
+export async function replaceWithEpub(book: Book, file: File, cover: Blob | null): Promise<Book> {
+	const hash = await sha256(file);
+	const existing = await findBookByHash(hash);
+	if (existing && existing.id !== book.id) return existing;
+	const parsed = openEpub(await file.arrayBuffer());
+	const embedded = parsed.cover ? new Blob([parsed.cover], { type: parsed.coverType || 'image/jpeg' }) : null;
+	const chosen = cover ?? embedded;
+	const next: Book = {
+		...book,
+		title: book.title.trim() || parsed.title || book.title,
+		sourceHash: hash,
+		pageCount: Math.max(parsed.spine.length, 1),
+		kind: 'epub',
+		chapters: tocChapters(parsed.toc, parsed.spine),
+		coverId: chosen ? (book.coverId ?? randomId()) : book.coverId
+	};
+	await saveBook(next, file, chosen);
+	return next;
+}
