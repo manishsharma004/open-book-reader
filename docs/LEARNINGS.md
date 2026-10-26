@@ -46,6 +46,12 @@ A chapter title packed into the following sentences is read as prose. A title is
 
 A short small line in the top or bottom margin, including a page number, is a running header and is not spoken. Body size is the most common line height, so one large drop cap does not make the whole line a title. A sentence that merely starts with the word "Chapter" stays prose.
 
+## Chapter navigation comes from the file, not from a catalog
+
+The open-book search does not return a table of contents, and Gutenberg and Standard Ebooks arrive as plain text, so a PDF outline alone would leave those books with no chapters. The list is built when the file is saved, and again on open if an older book has no `chapters` field. A PDF outline with two or more page destinations wins. Otherwise each page of text is scanned for a chapter, part, or matter line. A short line under a bare "Chapter I" is kept as the title. A line that already ends with a stop is the first sentence, not a subtitle.
+
+A contents page full of dot leaders, and a page with four or more of those labels, is skipped so the menu is not the contents. The same title on later pages is a running header and stays one entry. Roman numerals or short lines of capitals are used only when the book has no "Chapter N" line. One heading is not a menu. The stored record is `{ title, pageIndex }` on the book. Schema version stays 1. The span range, confidence, and review flow in DESIGN §6.3 are still the target.
+
 ## A saved sample needs an obvious delete
 
 The sample lives in IndexedDB. A quiet control that only appeared next to the filename was easy to miss, and the file picker still showed the chosen file after the record was cleared. Removal deletes the blob, clears the id and the filename, resets the picker, and bumps the settings revision so clips prepared with that sample are built again. The same action is in Settings and in the player. Later speech uses the voice id.

@@ -3,7 +3,8 @@
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Slider } from '#lib/components/ui/slider/index.js';
-	import { getBlob, getBook, type Book } from '#lib/db.js';
+	import { chapterForPage, chaptersFromDocument, chaptersFromText } from '#lib/chapters.js';
+	import { getBlob, getBook, updateBook, type Book } from '#lib/db.js';
 	import { openPdf, type PageWord } from '#lib/pdf.js';
 	import { paginateText } from '#lib/text-book.js';
 	import { logPipeline, pipeline } from '#lib/pipeline.svelte.js';
@@ -85,6 +86,8 @@
 	const id = $derived(page.params.id ?? '');
 	const settings = $derived(settingsState.current);
 	const shownPage = $derived(scrub ?? pageIndex);
+	const chapters = $derived(book?.chapters ?? []);
+	const chapterIndex = $derived(chapters.length ? chapterForPage(chapters, shownPage) : 0);
 	const field = 'border-input bg-background h-8 rounded-lg border px-2 text-sm';
 
 	$effect(() => {
@@ -292,11 +295,19 @@
 			void pdf?.cleanup();
 			pdf = null;
 			if (found.kind === 'text') {
-				attachText(paginateText(await blob.text()));
+				const pages = paginateText(await blob.text());
+				attachText(pages);
+				if (found.chapters == null) void rememberChapters(found, chaptersFromText(pages));
 			} else {
 				pdf = await openPdf(await blob.arrayBuffer());
 				if (cancelled) return;
 				attachDocument(pdf);
+				if (found.chapters == null) {
+					const document = pdf;
+					void chaptersFromDocument(document)
+						.then((list) => rememberChapters(found, list))
+						.catch(() => rememberChapters(found, []));
+				}
 			}
 			pageIndex = 0;
 			pdfToken += 1;
@@ -389,6 +400,19 @@
 		if (gen !== paintGen) return;
 		paintedSize = sizeKey;
 		viewport = next;
+	}
+
+	async function rememberChapters(source: Book, list: Book['chapters']) {
+		const next = { ...source, chapters: list ?? [] };
+		await updateBook(next);
+		if (book?.id === next.id) book = { ...book, chapters: next.chapters };
+	}
+
+	function onChapter(event: Event) {
+		const index = Number((event.currentTarget as HTMLSelectElement).value);
+		const chapter = book?.chapters?.[index];
+		if (!chapter) return;
+		jump(chapter.pageIndex);
 	}
 
 	function jump(next: number) {
@@ -866,6 +890,11 @@
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href="/" variant="ghost" size="sm">Library</Button>
 		<p class="min-w-0 flex-1 truncate text-sm font-medium">{book?.title ?? 'Opening…'}</p>
+		{#if chapters.length > 1}
+			<span class="text-muted-foreground hidden max-w-48 truncate text-xs sm:inline" data-chapter={chapters[chapterIndex]?.title ?? ''}>
+				{chapters[chapterIndex]?.title}
+			</span>
+		{/if}
 		<span class="text-muted-foreground text-sm tabular-nums" data-current-page={book ? shownPage + 1 : ''}>
 			{book ? `${shownPage + 1} / ${book.pageCount}` : ''}
 		</span>
@@ -1009,6 +1038,20 @@
 			<Button variant="outline" size="sm" onclick={() => jump(pageIndex + 1)} disabled={!book || pageIndex >= book.pageCount - 1}>
 				Next
 			</Button>
+			{#if chapters.length > 1}
+				<label class="text-muted-foreground text-xs" for="book-chapters">Chapter</label>
+				<select
+					id="book-chapters"
+					class="{field} max-w-56"
+					data-chapters={chapters.length}
+					value={String(chapterIndex)}
+					onchange={onChapter}
+				>
+					{#each chapters as chapter, index (chapter.pageIndex + ':' + chapter.title)}
+						<option value={String(index)}>{chapter.title}</option>
+					{/each}
+				</select>
+			{/if}
 			<form class="flex items-center gap-2" onsubmit={goToPage}>
 				<label class="text-muted-foreground text-xs" for="go-to-page">Go to page</label>
 				<input

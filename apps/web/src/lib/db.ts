@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { Chapter } from '#lib/chapters.js';
 import { sha256 as hashBlob } from '#lib/hash.js';
 
 export type Book = {
@@ -10,6 +11,7 @@ export type Book = {
 	blobId: string;
 	coverId: string | null;
 	kind?: 'pdf' | 'text';
+	chapters?: Chapter[];
 };
 
 type BlobRecord = {
@@ -79,6 +81,10 @@ export async function saveBook(book: Book, source: Blob, cover: Blob | null) {
 	}
 	await tx.objectStore('books').put(book);
 	await tx.done;
+}
+
+export async function updateBook(book: Book) {
+	await (await db()).put('books', book);
 }
 
 export async function deleteBook(book: Book) {

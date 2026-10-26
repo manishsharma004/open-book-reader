@@ -58,7 +58,7 @@ The reader can move between levels at any time. Moving up re-queues only the mod
 
 ### 1.2 What is running
 
-Checked 26 October 2026. The library, settings, and reader are in the app. The rest of this document is the target: spans, embeddings, chapter records, the Ready gate, export, the text view, and the open-book browser are not built. Do not treat a missing piece of that pipeline as a regression.
+Checked 26 October 2026. The library, settings, reader, and open-book browser are in the app. Spans, embeddings, the Ready gate, and export are not built. The reader stores a chapter list of title and page, which is enough to jump. The span-range chapter model in [Chapter separation](#63-chapter-separation) is still the target. Do not treat a missing piece of that pipeline as a regression.
 
 What the running reader does:
 
@@ -71,6 +71,8 @@ What the running reader does:
 - Changing the page aborts queued work and the request already in flight. Pocket stops on the next generation step. The proxy answers 499.
 - Pace is in the player and in Settings. **Remove sample**, in both places, deletes the saved reference. Later speech uses the voice id.
 - The app server on port 7507 serves `apps/web/build` and `/v1`. A web-only change is live after `npm run build` in `apps/web`. Pocket is a separate process on port 7508. Restart a process only when its own code changed.
+- **Browse open books** lists the twelve catalogs in [Open books](#611-open-books). Search and download go through the app server. The file is saved in this browser like an upload. PDF and plain text can be added. EPUB is listed and is not added.
+- Each book keeps `chapters`: a title and a page index. A PDF uses its outline when at least two entries name a page. Otherwise the text layer, or a plain-text book, is scanned for a chapter, part, or matter heading. A contents page of dot leaders is skipped. The same title repeated as a running header stays one chapter. The chapter menu in the reader jumps to that page. A book saved before this list existed gets it the next time it is opened.
 
 ### In scope for this design
 
@@ -339,6 +341,8 @@ OCR words below a confidence threshold (start at 60 of 100) are `unreadable` and
 A table is not spoken. When playback reaches one, the player shows **Table, not read** on that region and continues at the next spoken span. Reading tables is not a setting in this version.
 
 ### 6.3 Chapter separation
+
+The running reader already stores a title and a page index, from the PDF outline or from headings, and jumps to that page. This section is the target beyond that list.
 
 A chapter is a title plus a half-open range of span order. Ranges do not overlap and, with skipped matter, cover every spoken span.
 

@@ -2,13 +2,14 @@
 
 Follow `AGENTS.md`. This file is the handoff for the machine and the reader as of 26 October 2026.
 
-`specs/discussion/DESIGN.md` §1.2 is what the app does. The rest of that directory is the target (spans, embeddings, chapter records, the Ready gate, export, the text view, and the open-book browser). Those pieces are not built. Do not start them unless the request asks for them. Open books are specified in `DESIGN.md` §6.1.1 and `PROVIDERS.md` §10: one provider interface, one browse screen, and a module plus a registration line for each new source. `docs/LEARNINGS.md` is why the running reader is shaped this way, and which earlier fixes did not work.
+`specs/discussion/DESIGN.md` §1.2 is what the app does. The open-book browser is built: one provider interface, the `/open` screen, and a module plus a registration line for each source (`DESIGN.md` §6.1.1, `PROVIDERS.md` §10). The reader stores a chapter list of title and page (`apps/web/src/lib/chapters.ts`) and jumps to that page. Spans, embeddings, the span-range chapter model in §6.3, the Ready gate, and export are not built. Do not start them unless the request asks for them. `docs/LEARNINGS.md` is why the running reader is shaped this way, and which earlier fixes did not work.
 
 ## Where the running reader lives
 
 - Clips and pace: `apps/web/src/lib/speech-clips.ts`
 - Punctuation kept on spoken words: `apps/web/src/lib/spoken-text.ts`
-- Chapter title, body, and running header: `apps/web/src/lib/page-roles.ts`
+- Chapter title, body, and running header on a page: `apps/web/src/lib/page-roles.ts`
+- Chapter list and page jump: `apps/web/src/lib/chapters.ts`
 - Page buffer, early play, and abort: `apps/web/src/lib/prepare.ts`
 - Player, two audio elements, page turn, pace, remove sample: `apps/web/src/routes/read/[id]/+page.svelte`
 - Settings and the saved sample: `apps/web/src/lib/settings.ts`, `apps/web/src/lib/settings-store.svelte.ts`, `apps/web/src/routes/settings/+page.svelte`
