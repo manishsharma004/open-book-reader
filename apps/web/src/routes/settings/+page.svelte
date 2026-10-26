@@ -360,9 +360,23 @@
 				<span class="text-muted-foreground">Audio conversion {server.ffmpeg ? 'available' : 'not installed'}</span>
 			{:else if server}
 				<Badge data-app-server="browser">In this browser</Badge>
-				<span>Browser voice and On-device Pocket do not need the app server. Kokoro, Pocket, OpenAI, ElevenLabs, and the other catalogs do.</span>
+				<span>Browser voice and On-device Pocket do not need the app server. Kokoro, Pocket, OpenAI, and ElevenLabs do.</span>
 			{:else}
 				<span class="text-muted-foreground">Checking…</span>
+			{/if}
+			{#if settings}
+				<div class="grid w-full gap-2">
+					<Label for="open-books-url">Open books API</Label>
+					<Input
+						id="open-books-url"
+						bind:value={settings.openBooksUrl}
+						placeholder="https://reader.example.com"
+						autocomplete="off"
+					/>
+					<p class="text-muted-foreground text-xs">
+						Leave this empty when this site is the app server. A static copy uses this address for catalog search and downloads. Save stores it in this browser.
+					</p>
+				</div>
 			{/if}
 		</Card.Content>
 	</Card.Root>

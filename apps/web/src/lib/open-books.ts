@@ -1,13 +1,7 @@
 import { apiUrl } from '#lib/api-url.js';
 import { appServer } from '#lib/app-server.js';
-import {
-	GUTENBERG_BROWSER_LANGUAGES,
-	browserCover,
-	downloadGutenbergBrowser,
-	downloadGutenbergCover,
-	gutenbergSearchUrl,
-	parseGutenbergOpds
-} from '#lib/gutenberg-browser.js';
+import { openBooksBase, openBooksUrl } from '#lib/open-books-api.js';
+import { loadSettings, settingsState } from '#lib/settings-store.svelte.js';
 
 export type OpenProvider = {
 	id: string;
@@ -35,7 +29,13 @@ export type OpenBook = {
 	formats: OpenFormat[];
 };
 
-let catalogMode: 'unknown' | 'server' | 'browser' = 'unknown';
+export type CatalogKind = 'server' | 'remote' | 'off';
+
+export const OPEN_BOOKS_OFF =
+	'Catalogs need an Open books API address. Set one in Settings, or add a PDF or EPUB you already have.';
+
+/** Empty string means this site. Null means catalogs are off. */
+let remoteBase: string | null = null;
 
 function bookPath(id: string) {
 	return id.split('/').map((part) => encodeURIComponent(part)).join('/');
@@ -53,42 +53,47 @@ async function readError(response: Response) {
 	return text.slice(0, 300);
 }
 
-const browserProvider: OpenProvider = {
-	id: 'gutenberg',
-	name: 'Project Gutenberg',
-	search: true,
-	languages: GUTENBERG_BROWSER_LANGUAGES,
-	note: 'Text and PDF load in this browser. EPUB needs the Open Book Reader server.'
-};
+async function resolveRoot(): Promise<string | null> {
+	await loadSettings();
+	const configured = openBooksBase(settingsState.current?.openBooksUrl ?? '');
+	if (configured) {
+		remoteBase = configured;
+		return configured;
+	}
+	if ((await appServer()).present) {
+		remoteBase = '';
+		return '';
+	}
+	remoteBase = null;
+	return null;
+}
+
+function urlFor(path: string, root: string) {
+	return root ? openBooksUrl(root, path) : apiUrl(path);
+}
+
+export function catalogKind(): CatalogKind {
+	if (remoteBase === null) return 'off';
+	return remoteBase ? 'remote' : 'server';
+}
 
 export async function listProviders(): Promise<OpenProvider[]> {
-	const server = await appServer();
-	if (!server.present) {
-		catalogMode = 'browser';
-		return [browserProvider];
-	}
-	catalogMode = 'server';
-	const response = await fetch(apiUrl('/v1/open-books/providers'));
+	const root = await resolveRoot();
+	if (root === null) return [];
+	const response = await fetch(urlFor('/v1/open-books/providers', root));
 	if (!response.ok) throw new Error(await readError(response));
 	const body = (await response.json()) as { providers: OpenProvider[] };
 	return body.providers;
 }
 
 export async function searchOpenBooks(provider: string, q: string, language: string, page: string | null) {
+	const root = await resolveRoot();
+	if (root === null) throw new Error(OPEN_BOOKS_OFF);
 	const params = new URLSearchParams();
 	if (q) params.set('q', q);
 	if (language) params.set('language', language);
 	if (page) params.set('page', page);
-	if ((await appServer()).present === false || catalogMode === 'browser') {
-		if (provider !== 'gutenberg') {
-			throw new Error('That catalog needs the Open Book Reader server. This browser copy searches Project Gutenberg.');
-		}
-		catalogMode = 'browser';
-		const response = await fetch(gutenbergSearchUrl(q, language, page));
-		if (!response.ok) throw new Error('Project Gutenberg did not answer. The books already in this browser are still here.');
-		return parseGutenbergOpds(await response.text(), language);
-	}
-	const response = await fetch(apiUrl(`/v1/open-books/${encodeURIComponent(provider)}?${params}`));
+	const response = await fetch(urlFor(`/v1/open-books/${encodeURIComponent(provider)}?${params}`, root));
 	if (!response.ok) throw new Error(await readError(response));
 	return (await response.json()) as { books: OpenBook[]; page: string | null };
 }
@@ -104,13 +109,9 @@ function filenameOf(header: string | null, fallback: string) {
 }
 
 export async function downloadOpenBook(provider: string, id: string, mediaType: string, title: string) {
-	if ((await appServer()).present === false || catalogMode === 'browser') {
-		if (provider !== 'gutenberg') {
-			throw new Error('That catalog needs the Open Book Reader server.');
-		}
-		return downloadGutenbergBrowser(id, mediaType, title);
-	}
-	const response = await fetch(apiUrl(`/v1/open-books/${encodeURIComponent(provider)}/${bookPath(id)}`), {
+	const root = await resolveRoot();
+	if (root === null) throw new Error(OPEN_BOOKS_OFF);
+	const response = await fetch(urlFor(`/v1/open-books/${encodeURIComponent(provider)}/${bookPath(id)}`, root), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ mediaType })
@@ -123,19 +124,13 @@ export async function downloadOpenBook(provider: string, id: string, mediaType: 
 }
 
 export function coverPath(provider: string, id: string) {
-	if (provider === 'gutenberg') {
-		const inline = browserCover(id);
-		if (inline) return inline;
-	}
-	if (catalogMode === 'browser') return '';
-	return apiUrl(`/v1/open-books/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/cover`);
+	if (remoteBase === null) return '';
+	const path = `/v1/open-books/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/cover`;
+	return remoteBase ? openBooksUrl(remoteBase, path) : apiUrl(path);
 }
 
 /** The picture on the catalog card. A missing cover does not block saving the book. */
 export async function downloadCover(provider: string, id: string): Promise<Blob | null> {
-	if (provider === 'gutenberg' && (catalogMode === 'browser' || browserCover(id))) {
-		return downloadGutenbergCover(id);
-	}
 	try {
 		const path = coverPath(provider, id);
 		if (!path) return null;

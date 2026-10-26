@@ -32,6 +32,31 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Open Book Reader", lifespan=lifespan)
+
+
+def _open_books_cors_headers() -> dict[str, str]:
+    return {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+        "access-control-max-age": "600",
+    }
+
+
+@app.middleware("http")
+async def open_books_cors(request: Request, call_next):
+    """A static site on another origin can call the catalog when Settings names this server."""
+    path = request.url.path
+    catalog = path.startswith("/v1/open-books")
+    if request.method == "OPTIONS" and catalog:
+        return Response(status_code=204, headers=_open_books_cors_headers())
+    response = await call_next(request)
+    if catalog or path == "/v1/health":
+        for key, value in _open_books_cors_headers().items():
+            response.headers.setdefault(key, value)
+    return response
+
+
 app.middleware("http")(observe_v1)
 app.include_router(open_books_router)
 

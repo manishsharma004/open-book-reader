@@ -1,4 +1,5 @@
 import { deleteBlob, getBlob, putBlob, readAppRecord, writeAppRecord } from '#lib/db.js';
+import { openBooksBase } from '#lib/open-books-api.js';
 import { pocketDeviceVoice } from '#lib/voice-ids.js';
 import { SPEECH_CHUNK_WORDS, speechPace } from '#lib/speech-clips.js';
 import { randomId } from '#lib/hash.js';
@@ -55,6 +56,7 @@ export type AppSettings = {
 	vllm: Endpoint;
 	emotionModel: Endpoint;
 	tts: TtsSettings;
+	openBooksUrl: string;
 };
 
 export function defaultSettings(): AppSettings {
@@ -87,7 +89,8 @@ export function defaultSettings(): AppSettings {
 			model: 'kokoro',
 			apiKey: '',
 			voice: 'af_heart'
-		}
+		},
+		openBooksUrl: ''
 	};
 }
 
@@ -158,7 +161,8 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 					: typeof ttsRaw.voice === 'string'
 						? ttsRaw.voice
 						: base.tts.voice
-		}
+		},
+		openBooksUrl: openBooksBase(typeof raw.openBooksUrl === 'string' ? raw.openBooksUrl : '')
 	};
 }
 
@@ -234,6 +238,7 @@ export async function loadStoredSettings(): Promise<AppSettings> {
 }
 
 export async function storeSettings(settings: AppSettings) {
+	settings.openBooksUrl = openBooksBase(settings.openBooksUrl);
 	const plain = JSON.parse(JSON.stringify(settings)) as AppSettings;
 	plain.lookahead = Number(plain.lookahead) === 3 ? 3 : 2;
 	plain.speechPace = speechPace(plain.speechPace);

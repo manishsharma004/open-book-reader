@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { appServer } from '#lib/app-server.js';
 	import AppHeader from '#lib/components/app-header.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { saveEpubFile, savePdfFile, saveTextFile } from '#lib/library.js';
 	import {
+		catalogKind,
 		coverPath,
 		downloadCover,
 		downloadOpenBook,
 		listProviders,
+		OPEN_BOOKS_OFF,
 		searchOpenBooks,
 		type OpenBook,
 		type OpenFormat,
@@ -27,7 +28,7 @@
 	let busy = $state('');
 	let error = $state('');
 	let loaded = $state(false);
-	let browserCatalog = $state(false);
+	let catalog = $state<'server' | 'remote' | 'off' | ''>('');
 	let searchGen = 0;
 
 	const provider = $derived(providers.find((item) => item.id === providerId) ?? null);
@@ -35,14 +36,15 @@
 
 	async function loadProviders() {
 		try {
-			browserCatalog = !(await appServer()).present;
 			providers = await listProviders();
+			catalog = catalogKind();
 			providerId = providers[0]?.id ?? '';
 			const browser = navigator.language?.slice(0, 2).toLowerCase() ?? 'en';
 			language = providers[0]?.languages.includes(browser) ? browser : (providers[0]?.languages[0] ?? 'en');
 			loaded = true;
 			if (providerId) await runSearch(null);
 		} catch (caught) {
+			catalog = catalogKind();
 			error = caught instanceof Error ? caught.message : 'Open books need the network. The books already in this browser are still here.';
 			loaded = true;
 		}
@@ -108,13 +110,15 @@
 
 <AppHeader />
 
-<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8" data-open-books aria-busy={busy === 'search' || !loaded}>
+<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8" data-open-books data-open-books-mode={catalog || 'loading'} aria-busy={busy === 'search' || !loaded}>
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Open books</h1>
 			<p class="text-muted-foreground mt-1 max-w-xl text-sm">
-				{#if browserCatalog}
-					Project Gutenberg text and PDF load in this browser. EPUB and the other catalogs need the Open Book Reader server. A file you add stays in this browser.
+				{#if catalog === 'remote'}
+					Search and downloads use the Open books API saved in Settings. A file you add stays in this browser.
+				{:else if catalog === 'off'}
+					{OPEN_BOOKS_OFF}
 				{:else}
 					The search is sent to that provider through the app server and is not kept. A file you add stays in this browser.
 				{/if}
@@ -128,8 +132,10 @@
 			<div class="border-muted border-t-primary size-10 animate-spin rounded-full border-2"></div>
 			<p class="text-sm font-medium">Loading catalogs…</p>
 		</div>
+	{:else if catalog === 'off'}
+		<Button href={resolve('/settings')} variant="secondary" class="w-fit">Open books API in Settings</Button>
 	{:else if providers.length === 0}
-		<p class="text-sm">Open books need the network. The books already in this browser are still here.</p>
+		<p class="text-sm">{error || 'Open books need the network. The books already in this browser are still here.'}</p>
 	{:else}
 		<div class="flex flex-wrap gap-2" data-providers>
 			{#each providers as item (item.id)}

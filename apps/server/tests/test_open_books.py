@@ -125,3 +125,16 @@ def test_routes_hide_source_urls(monkeypatch):
     assert epub.status_code == 200
     assert epub.content.startswith(b"PK")
     assert epub.headers["content-type"].startswith("application/epub+zip")
+
+
+def test_catalog_routes_allow_a_static_site():
+    client = TestClient(app)
+    options = client.options("/v1/open-books/providers")
+    assert options.status_code == 204
+    assert options.headers["access-control-allow-origin"] == "*"
+    assert options.headers["access-control-allow-methods"] == "GET, POST, OPTIONS"
+    health = client.get("/v1/health")
+    assert health.status_code == 200
+    assert health.headers["access-control-allow-origin"] == "*"
+    other = client.post("/v1/speak", json={})
+    assert "access-control-allow-origin" not in other.headers
