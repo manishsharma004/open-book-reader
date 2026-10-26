@@ -5,9 +5,11 @@
 	import { Slider } from '#lib/components/ui/slider/index.js';
 	import { getBlob, getBook, type Book } from '#lib/db.js';
 	import { openPdf, type PageWord } from '#lib/pdf.js';
+	import { paginateText } from '#lib/text-book.js';
 	import { logPipeline, pipeline } from '#lib/pipeline.svelte.js';
 	import {
 		attachDocument,
+		attachText,
 		bufferSnapshot,
 		bufferSpeech,
 		cachedPage,
@@ -288,9 +290,14 @@
 			const blob = await getBlob(found.blobId);
 			if (!blob || cancelled) return;
 			void pdf?.cleanup();
-			pdf = await openPdf(await blob.arrayBuffer());
-			if (cancelled) return;
-			attachDocument(pdf);
+			pdf = null;
+			if (found.kind === 'text') {
+				attachText(paginateText(await blob.text()));
+			} else {
+				pdf = await openPdf(await blob.arrayBuffer());
+				if (cancelled) return;
+				attachDocument(pdf);
+			}
 			pageIndex = 0;
 			pdfToken += 1;
 		})().catch((caught) => {
@@ -357,6 +364,7 @@
 
 	async function paint() {
 		const gen = ++paintGen;
+		if (book?.kind === 'text') return;
 		if (!pdf || !canvas || !stage || !prepared) return;
 		const width = stage.clientWidth;
 		const height = stage.clientHeight;
@@ -909,8 +917,36 @@
 								style:opacity={pageOpacity}
 								style:transition={dragAnimate ? 'transform 300ms ease, opacity 220ms ease' : 'none'}
 							>
-							<canvas bind:this={canvas} class="bg-white"></canvas>
-							{#if viewport}
+							<canvas bind:this={canvas} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
+							{#if book?.kind === 'text'}
+								<div class="w-[min(42rem,86vw)] max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page>
+									{#each words as word, index (`text:${index}:${word.charStart}`)}
+										<button
+											type="button"
+											class="rounded-sm"
+											class:mt-4={word.role === 'heading'}
+											class:block={word.role === 'heading'}
+											class:text-xl={word.role === 'heading'}
+											style:background={wordBackdrop(
+												index === activeWord || activeWord === -2,
+												readyWords[index] === true,
+												word.role
+											)}
+											style:box-shadow={index === activeWord || activeWord === -2
+												? 'inset 0 -2px 0 var(--highlight-line)'
+												: word.role === 'heading'
+													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
+													: 'none'}
+											aria-label={word.text}
+											aria-current={index === activeWord ? 'true' : undefined}
+											data-word={index}
+											data-role={word.role}
+											data-speech-ready={readyWords[index] ? 'true' : 'false'}
+											onclick={() => playFrom(index, { seek: true })}
+										>{word.text}</button>{' '}
+									{/each}
+								</div>
+							{:else if viewport}
 								<div class="pointer-events-none absolute inset-0">
 									{#each words as word, index (`${index}:${word.charStart}`)}
 										{@const box = wordBox(word)}

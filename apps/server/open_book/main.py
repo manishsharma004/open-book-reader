@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from open_book.forward import approved_completion_base, approved_speech_base, voice_id
 from open_book.log import logger, note_vendor, observe_v1, public_text
+from open_book.open_books.routes import router as open_books_router
 
 BUILD = Path(__file__).resolve().parents[2] / "web" / "build"
 MAX_AUDIO_BYTES = 24 * 1024 * 1024
@@ -32,6 +33,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Open Book Reader", lifespan=lifespan)
 app.middleware("http")(observe_v1)
+app.include_router(open_books_router)
 
 
 @app.exception_handler(Exception)

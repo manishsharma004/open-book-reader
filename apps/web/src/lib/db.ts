@@ -9,6 +9,7 @@ export type Book = {
 	addedAt: number;
 	blobId: string;
 	coverId: string | null;
+	kind?: 'pdf' | 'text';
 };
 
 type BlobRecord = {

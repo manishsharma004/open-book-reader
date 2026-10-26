@@ -8,9 +8,9 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
-	import { deleteBook, findBookByHash, getBlob, listBooks, saveBook, sha256, type Book } from '#lib/db.js';
-	import { randomId } from '#lib/hash.js';
-	import { coverBlob, isPasswordError, openPdf } from '#lib/pdf.js';
+	import { deleteBook, getBlob, listBooks, type Book } from '#lib/db.js';
+	import { savePdfFile } from '#lib/library.js';
+	import { isPasswordError } from '#lib/pdf.js';
 
 	let books = $state<Book[]>([]);
 	let covers = $state<Record<string, string>>({});
@@ -51,34 +51,15 @@
 		busy = true;
 		error = '';
 		try {
-			const hash = await sha256(file);
-			const existing = await findBookByHash(hash);
-			if (existing) {
-				open = false;
-				await goto(`/read/${existing.id}`);
-				return;
-			}
-			const pdf = await openPdf(await file.arrayBuffer(), pdfPassword);
-			const first = await pdf.getPage(1);
-			const cover = await coverBlob(first);
-			const meta = await pdf.getMetadata().catch(() => null);
-			const info = meta?.info as { Title?: string } | undefined;
-			const title = info?.Title?.trim() || file.name.replace(/\.pdf$/i, '');
-			const book: Book = {
-				id: randomId(),
-				title,
-				sourceHash: hash,
-				pageCount: pdf.numPages,
-				addedAt: Date.now(),
-				blobId: randomId(),
-				coverId: randomId()
-			};
-			await saveBook(book, file, cover);
-			await pdf.cleanup();
+			const saved = await savePdfFile(file, pdfPassword);
 			open = false;
 			pendingFile = null;
 			password = '';
 			needsPassword = false;
+			if (saved.existing) {
+				await goto(`/read/${saved.book.id}`);
+				return;
+			}
 			await refresh();
 		} catch (caught) {
 			if (isPasswordError(caught)) {
@@ -116,19 +97,23 @@
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Library</h1>
 			<p class="text-muted-foreground mt-1 max-w-xl text-sm">
-				Add a PDF you own. It stays in this browser. Sparse pages are read with OCR, and speech can use the browser voice or a model from Settings.
+				Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser.
 			</p>
 		</div>
-		<Button onclick={() => (open = true)}>Add book</Button>
+		<div class="flex gap-2">
+			<Button href="/open" variant="secondary">Browse open books</Button>
+			<Button onclick={() => (open = true)}>Add book</Button>
+		</div>
 	</div>
 
 	{#if books.length === 0}
 		<Card.Root class="border-dashed">
 			<Card.Header>
 				<Card.Title>No books yet</Card.Title>
-				<Card.Description>Drop in a text-layer PDF to open it and hear the page.</Card.Description>
+				<Card.Description>Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser.</Card.Description>
 			</Card.Header>
-			<Card.Footer>
+			<Card.Footer class="gap-2">
+				<Button href="/open" variant="secondary">Browse open books</Button>
 				<Button variant="secondary" onclick={() => (open = true)}>Add book</Button>
 			</Card.Footer>
 		</Card.Root>

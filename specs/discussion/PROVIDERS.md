@@ -392,12 +392,12 @@ Each row answered from this machine on 26 October 2026. A third-party catalog li
 | `standardebooks` | `https://standardebooks.org/feeds/atom/new-releases` returned Atom with enclosure links. `https://standardebooks.org/feeds/opds` returned 401 | Standard Ebooks, public domain on the website. The full catalog feed is for patrons. This module uses the public new-releases feed and does not read HTML pages | no. The note is "New releases" | `standardebooks.org` |
 | `ebooksgratuits` | `https://www.ebooksgratuits.com/opds/` returned XML | French public-domain classics | yes | `www.ebooksgratuits.com` |
 | `wolnelektury` | `https://wolnelektury.pl/opds/` returned Atom | Polish free texts | yes | `wolnelektury.pl` |
-| `textos` | `https://textos.info/opds` returned XML | Spanish public domain | yes | `textos.info` |
+| `textos` | `https://textos.info/opds` returned XML and redirects to `www.textos.info` | Spanish public domain | yes | `textos.info`, `www.textos.info` |
 | `aozora` | `http://aozora.textlive.net/catalog.opds` returned Atom. HTTPS on that host did not answer | Japanese public domain | yes | `aozora.textlive.net` over HTTP only |
 | `imwerden` | `https://imwerden.de/opds/` returned an Atom navigation feed | A book is included only when that entry is marked free to copy | yes | `imwerden.de` |
 | `bokselskap` | `https://www.bokselskap.no/wp-content/themes/bokselskap/tekster/opds/root.xml` returned XML | Norwegian public-domain editions | yes | `www.bokselskap.no` |
-| `cbeta` | `https://www.cbeta.org/opds` returned XML | Chinese Buddhist canon, free to copy. Acquisition links in the feed may contain `&amp;`. The module decodes that before it fetches, or the download is empty | yes | `www.cbeta.org` |
-| `openedition` | `https://opds.openedition.org/` returned XML | Open-access books. Freemium entries are dropped. A file host is added to this module only after a download from that host succeeds | yes | `opds.openedition.org`, plus file hosts added the same way |
+| `cbeta` | `https://www.cbeta.org/opds` returned XML and redirects to `archive2.cbeta.org` | Chinese Buddhist canon, free to copy. Acquisition links in the feed may contain `&amp;`. The module decodes that before it fetches, or the download is empty | yes | `www.cbeta.org`, `archive2.cbeta.org` |
+| `openedition` | `https://opds.openedition.org/` returned XML | Open-access books. Search matches a publisher name, then lists that publisher's books. Freemium entries are dropped | yes | `opds.openedition.org`, `books.openedition.org` |
 | `wikisource` | `https://en.wikisource.org/w/api.php` search returned JSON | One provider. `language` selects the wiki. The module starts with `en.wikisource.org` and lists each further wiki host it enables. Public domain and free licenses only. The file is that wiki's plain-text export | yes | Each `{lang}.wikisource.org` the module lists |
 
 Gutendex (`gutendex.com`) answered for a known Gutenberg id and timed out on a search. It describes the same Project Gutenberg catalog, so it is not a second provider.
