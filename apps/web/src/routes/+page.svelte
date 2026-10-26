@@ -9,7 +9,7 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
-	import { deleteBook, getBlob, listBooks, type Book } from '#lib/db.js';
+	import { clearBookSpeech, deleteBook, getBlob, listBooks, type Book } from '#lib/db.js';
 	import { saveEpubFile, savePdfFile } from '#lib/library.js';
 	import { isPasswordError } from '#lib/pdf.js';
 
@@ -18,6 +18,7 @@
 	let storage = $state<{ used: number; quota: number } | null>(null);
 	let open = $state(false);
 	let busy = $state(false);
+	let cleared = $state('');
 	let error = $state('');
 	let password = $state('');
 	let pendingFile = $state<File | null>(null);
@@ -151,6 +152,11 @@
 		await deleteBook(book);
 		await refresh();
 	}
+
+	async function clearAudio(book: Book) {
+		await clearBookSpeech(book.id);
+		cleared = book.id;
+	}
 </script>
 
 <AppHeader />
@@ -198,7 +204,10 @@
 						</Card.Header>
 						<Card.Footer class="gap-2">
 							<Badge>Ready to read</Badge>
-							<Button class="ml-auto" variant="ghost" size="sm" onclick={() => remove(book)}>Remove</Button>
+							<Button class="ml-auto" variant="ghost" size="sm" data-clear-audio={book.id} onclick={() => clearAudio(book)}>
+								{cleared === book.id ? 'Audio cleared' : 'Clear audio'}
+							</Button>
+							<Button variant="ghost" size="sm" onclick={() => remove(book)}>Remove</Button>
 						</Card.Footer>
 					</Card.Root>
 				</li>

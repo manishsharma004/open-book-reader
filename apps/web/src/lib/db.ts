@@ -20,6 +20,15 @@ type BlobRecord = {
 	blob: Blob;
 };
 
+export type SpeechTiming = { start: number; end: number };
+
+export type SpeechRecord = {
+	id: string;
+	bookId: string;
+	blob: Blob;
+	timings: SpeechTiming[] | null;
+};
+
 type SettingsRecord = {
 	id: 'app';
 	[key: string]: unknown;
@@ -39,17 +48,28 @@ interface Schema extends DBSchema {
 		key: string;
 		value: SettingsRecord;
 	};
+	speech: {
+		key: string;
+		value: SpeechRecord;
+		indexes: { 'by-book': string };
+	};
 }
 
 let database: Promise<IDBPDatabase<Schema>> | null = null;
 
 function db() {
-	database ??= openDB<Schema>('open-book-reader', 1, {
-		upgrade(database) {
-			const books = database.createObjectStore('books', { keyPath: 'id' });
-			books.createIndex('by-hash', 'sourceHash', { unique: true });
-			database.createObjectStore('blobs', { keyPath: 'id' });
-			database.createObjectStore('settings', { keyPath: 'id' });
+	database ??= openDB<Schema>('open-book-reader', 2, {
+		upgrade(database, oldVersion) {
+			if (oldVersion < 1) {
+				const books = database.createObjectStore('books', { keyPath: 'id' });
+				books.createIndex('by-hash', 'sourceHash', { unique: true });
+				database.createObjectStore('blobs', { keyPath: 'id' });
+				database.createObjectStore('settings', { keyPath: 'id' });
+			}
+			if (oldVersion < 2) {
+				const speech = database.createObjectStore('speech', { keyPath: 'id' });
+				speech.createIndex('by-book', 'bookId');
+			}
 		}
 	});
 	return database;
@@ -99,11 +119,31 @@ export async function updateBook(book: Book) {
 
 export async function deleteBook(book: Book) {
 	const database = await db();
-	const tx = database.transaction(['books', 'blobs'], 'readwrite');
+	const tx = database.transaction(['books', 'blobs', 'speech'], 'readwrite');
 	await tx.objectStore('books').delete(book.id);
 	await tx.objectStore('blobs').delete(book.blobId);
 	if (book.coverId) await tx.objectStore('blobs').delete(book.coverId);
+	const cached = await tx.objectStore('speech').index('by-book').getAllKeys(book.id);
+	for (const key of cached) await tx.objectStore('speech').delete(key);
 	await tx.done;
+}
+
+export async function getSpeech(id: string): Promise<SpeechRecord | undefined> {
+	return (await db()).get('speech', id);
+}
+
+export async function putSpeech(record: SpeechRecord) {
+	await (await db()).put('speech', record);
+}
+
+/** Drop stored speech for one book. The next play asks the voice again. */
+export async function clearBookSpeech(bookId: string): Promise<number> {
+	const database = await db();
+	const tx = database.transaction('speech', 'readwrite');
+	const keys = await tx.store.index('by-book').getAllKeys(bookId);
+	for (const key of keys) await tx.store.delete(key);
+	await tx.done;
+	return keys.length;
 }
 
 export async function readAppRecord(): Promise<SettingsRecord | undefined> {

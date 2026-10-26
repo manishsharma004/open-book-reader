@@ -62,7 +62,7 @@ Checked 26 October 2026. The library, settings, reader, and open-book browser ar
 
 What the running reader does:
 
-- The PDF, the cover, settings, and an optional voice sample live in IndexedDB `open-book-reader`. The server stores none of them.
+- The PDF, the cover, settings, an optional voice sample, and buffered speech clips live in IndexedDB `open-book-reader`. A clip is reused for the same book, words, and voice, with no further speak call. **Clear audio** on the library card deletes that book's clips. The server stores none of them.
 - PDF.js draws the page. A page with fewer than 8 text-layer words is read with tesseract.js. Spoken words keep the punctuation that was printed on them.
 - Vendor speech is not one request per page. Clips end on a full stop and pack up to the pace in the player, which defaults to 24 words and steps by 4 from 8 to 48. A sentence longer than the pace stays one clip until twice the pace, and never past 64 words. A run with no full stop is still cut at the pace.
 - The buffer is the open page plus the next 2 or 3 pages. The open page is filled first. The page is shown when its words are known. Playback starts when the first clip has audio. Words with audio are tinted green.

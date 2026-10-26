@@ -12,6 +12,8 @@ import {
 import { spokenClipText } from '#lib/page-roles.js';
 import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
+import { getSpeech, putSpeech } from '#lib/db.js';
+import { speechCacheId, type SpeechIdentity } from '#lib/speech-cache.js';
 import type { PageText, PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -75,6 +77,7 @@ let activeClip: SpeechClip | null = null;
 let pumping = false;
 let pdf: PDFDocumentProxy | null = null;
 let textPages: string[] | null = null;
+let bookId: string | null = null;
 const listeners = new Set<() => void>();
 
 let emitQueued = false;
@@ -163,6 +166,10 @@ function resetDocument() {
 	for (const page of cache.values()) release(page);
 	cache.clear();
 	emit();
+}
+
+export function attachBook(id: string | null) {
+	bookId = id;
 }
 
 export function attachDocument(next: PDFDocumentProxy | null) {
@@ -375,6 +382,31 @@ function makeClips(words: PageWord[], clauses: Clause[], pace: number): SpeechCl
 	}));
 }
 
+function clipIdentity(settings: AppSettings, clip: SpeechClip): SpeechIdentity {
+	const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+	return {
+		text: clip.text,
+		emotion: clip.emotion,
+		vendor: settings.tts.vendor,
+		baseUrl: settings.tts.baseUrl,
+		model: settings.tts.model,
+		voice: settings.tts.voice,
+		sampleId: useSample ? settings.cloneBlobId : null
+	};
+}
+
+function applyClipAudio(clip: SpeechClip, blob: Blob, timings: { start: number; end: number }[] | null) {
+	clip.audioUrl = URL.createObjectURL(blob);
+	clip.timings = timings
+		? timings.map((word, index) => ({
+				wordIndex: clip.wordStart + index,
+				start: word.start,
+				end: word.end
+			}))
+		: null;
+	clip.state = 'ready';
+}
+
 async function speakClip(
 	settings: AppSettings,
 	clip: SpeechClip,
@@ -384,6 +416,24 @@ async function speakClip(
 	signal: AbortSignal
 ) {
 	const started = performance.now();
+	const owner = bookId;
+	const identity = clipIdentity(settings, clip);
+	if (owner) {
+		const id = await speechCacheId(owner, identity);
+		const cached = await getSpeech(id).catch(() => undefined);
+		if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
+		if (cached && cached.blob.size > 0) {
+			applyClipAudio(clip, cached.blob, cached.timings);
+			logPipeline({
+				page: pageNumber,
+				stage: 'tts',
+				status: 'ok',
+				ms: Math.round(performance.now() - started),
+				detail: `Cached clip ${which}/${total}, ${cached.blob.size} bytes. No speak call.`
+			});
+			return;
+		}
+	}
 	logPipeline({
 		page: pageNumber,
 		stage: 'tts',
@@ -406,15 +456,12 @@ async function speakClip(
 		signal
 	);
 	if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
-	clip.audioUrl = URL.createObjectURL(result.blob);
-	clip.timings = result.words
-		? result.words.map((word, index) => ({
-				wordIndex: clip.wordStart + index,
-				start: word.start,
-				end: word.end
-			}))
-		: null;
-	clip.state = 'ready';
+	const timings = result.words?.map((word) => ({ start: word.start, end: word.end })) ?? null;
+	applyClipAudio(clip, result.blob, timings);
+	if (owner && result.blob.size > 0) {
+		const id = await speechCacheId(owner, identity);
+		await putSpeech({ id, bookId: owner, blob: result.blob, timings }).catch(() => undefined);
+	}
 	logPipeline({
 		page: pageNumber,
 		stage: 'tts',

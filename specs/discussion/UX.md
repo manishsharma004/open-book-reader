@@ -57,7 +57,7 @@ A **Try with a sample book** link adds a short bundled public-domain book so the
 - Grid of books: the whole cover (first page render), title, author when known, state badge (**Processing 64%**, **Needs you**, **Ready**, **Failed**), listening progress bar, and prepared-audio size. Every library card is the same height. The whole cover keeps its own shape inside that shared frame.
 - Drop zone and **Add book** button. Dropping a file that is already in the library opens that book.
 - Storage bar at the bottom: used and available bytes from `navigator.storage.estimate()`, persistence status, and **Manage storage**.
-- Menu per book: Export, Remove prepared audio, Reprocess, Delete.
+- Menu per book: Export, **Clear audio** (removes that book's stored speech so the next play asks the voice again), Reprocess, Delete.
 - **Browse open books** sits with **Add book**. Empty state: "Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser." and the sample book link.
 - Banner on Safari when not installed to the Home Screen: "Safari may delete this library after 7 days without a visit. Add to Home Screen to keep it." With **How** and **Dismiss**.
 

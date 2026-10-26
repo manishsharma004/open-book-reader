@@ -15,6 +15,7 @@
 	import { logPipeline, pipeline } from '#lib/pipeline.svelte.js';
 	import {
 		attachDocument,
+		attachBook,
 		attachText,
 		laidTextPage,
 		bufferSnapshot,
@@ -416,6 +417,7 @@
 				return;
 			}
 			book = found;
+			attachBook(found.id);
 			const blob = await getBlob(found.blobId);
 			if (cancelled) return;
 			if (!blob) {
