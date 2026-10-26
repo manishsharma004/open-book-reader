@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { chaptersFromToc, openEpub, pageFrame, sectionDocument, type ParsedEpub } from '#lib/epub.js';
 	import { HEADING_TINT, READY_TINT } from '#lib/speech-clips.js';
 	import { wordHits, type MarkPiece } from '#lib/spoken-marks.js';
@@ -47,6 +48,8 @@
 	let shown = '';
 	let desired = 0;
 	let markedKey = '';
+	let columnShift = $state(0);
+	let layoutBucket = $state('');
 
 	const blocks = new Set(['ADDRESS', 'ARTICLE', 'BLOCKQUOTE', 'DIV', 'DD', 'DT', 'FIGCAPTION', 'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'P', 'PRE', 'SECTION', 'TR']);
 
@@ -122,7 +125,7 @@
 			sheet.id = 'ob-mark';
 			doc.head.appendChild(sheet);
 		}
-		sheet.textContent = `.ob-w{border-radius:2px}.ob-ready{background:${READY_TINT}}.ob-heading{background:${HEADING_TINT}}.ob-sentence{box-shadow:inset 0 -2px 0 ${line}}.ob-active{background:${fill};box-shadow:inset 0 -2px 0 ${line}}`;
+		sheet.textContent = `.ob-w{border-radius:1px}.ob-ready{background:${READY_TINT}}.ob-heading{background:${HEADING_TINT}}.ob-sentence{box-shadow:inset 0 -2px 0 ${line}}.ob-active{background:${fill};box-shadow:inset 0 -2px 0 ${line}}`;
 		const byPiece = new Map<number, { start: number; end: number; word: number }[]>();
 		hits.forEach((slices, word) => {
 			for (const slice of slices) {
@@ -301,17 +304,23 @@
 	}
 
 	$effect(() => {
+		// Reading the raw size here would measure the book again on every footer wrap.
+		const next = `${spread}:${Math.round(width / 48)}:${Math.round(height / 48)}:${data?.byteLength ?? 0}`;
+		if (next !== layoutBucket) layoutBucket = next;
+	});
+
+	$effect(() => {
+		const bucket = layoutBucket;
 		const bytes = data;
-		const boxWidth = width;
-		const boxHeight = height;
 		const frame = probe;
-		const wide = spread;
-		if (!bytes || !frame || boxWidth < 40 || boxHeight < 40) return;
+		if (!bucket || !bytes || !frame) return;
+		const boxWidth = untrack(() => width);
+		const boxHeight = untrack(() => height);
+		const wide = untrack(() => spread);
+		if (boxWidth < 40 || boxHeight < 40) return;
 		let cancelled = false;
 		const widthPx = columnWidth(boxWidth);
 		const limit = pageFrame(widthPx, boxHeight, wide).innerHeight;
-		sections = [];
-		shown = '';
 		void (async () => {
 			let book: ParsedEpub;
 			try {
@@ -354,59 +363,66 @@
 		};
 	});
 
+	function place(doc: Document, section: { href: string; start: number; count: number }, widthPx: number) {
+		const flow = doc.getElementById('ob-flow');
+		const at = Math.min(section.start + section.count - 1, Math.max(section.start, desired));
+		const shift = -(at - section.start) * widthPx;
+		if (flow) flow.style.transform = `translateX(${shift}px)`;
+		if (columnShift !== shift) columnShift = shift;
+		doc.onpointerdown = (event) => {
+			const startX = event.clientX;
+			const startY = event.clientY;
+			const move = (next: PointerEvent) => {
+				if (Math.abs(next.clientY - startY) > Math.abs(next.clientX - startX)) doc.onpointerup = null;
+			};
+			doc.onpointerup = (next) => {
+				doc.onpointerup = null;
+				doc.onpointermove = null;
+				const dx = next.clientX - startX;
+				if (Math.abs(dx) < 70) return;
+				onflick(dx < 0 ? 1 : -1);
+			};
+			doc.onpointermove = move;
+		};
+	}
+
 	$effect(() => {
 		const frame = view;
 		desired = page;
-		const section = sections.find((item) => desired >= item.start && desired < item.start + item.count) ?? sections[sections.length - 1];
-		if (!frame || !section || width < 40) return;
 		const widthPx = columnWidth(width);
 		const limit = pageFrame(widthPx, height, spread).innerHeight;
-		const apply = (doc: Document) => {
-			const flow = doc.getElementById('ob-flow');
-			const current = sections.find((item) => item.href === section.href) ?? section;
-			const at = Math.min(current.start + current.count - 1, Math.max(current.start, desired));
-			if (flow) flow.style.transform = `translateX(${-(at - current.start) * widthPx}px)`;
-			markedKey = '';
-			remark();
-			doc.onpointerdown = (event) => {
-				const startX = event.clientX;
-				const startY = event.clientY;
-				const move = (next: PointerEvent) => {
-					if (Math.abs(next.clientY - startY) > Math.abs(next.clientX - startX)) doc.onpointerup = null;
-				};
-				doc.onpointerup = (next) => {
-					doc.onpointerup = null;
-					doc.onpointermove = null;
-					const dx = next.clientX - startX;
-					if (Math.abs(dx) < 70) return;
-					onflick(dx < 0 ? 1 : -1);
-				};
-				doc.onpointermove = move;
-			};
-		};
-		const key = `${section.href}:${widthPx}`;
-		if (shown === key && frame.contentDocument?.getElementById('ob-flow')) {
-			apply(frame.contentDocument);
+		// Keep the open section on screen until the page being turned to has been measured.
+		// Falling through to the latest section reloaded a different chapter on every spine item.
+		const section = sections.find((item) => desired >= item.start && desired < item.start + item.count);
+		if (!frame || !section || width < 40) return;
+		const key = `${section.href}:${widthPx}:${section.start}`;
+		const doc = frame.contentDocument;
+		if (shown === key) {
+			if (doc?.getElementById('ob-flow')) place(doc, section, widthPx);
 			return;
 		}
 		shown = key;
+		markedKey = '';
 		frame.onload = () => {
-			const doc = frame.contentDocument;
-			if (!doc) return;
-			void settle(doc, limit).then(() => {
-				if (frame.contentDocument === doc) apply(doc);
+			const loaded = frame.contentDocument;
+			if (!loaded) return;
+			void settle(loaded, limit).then(() => {
+				if (frame.contentDocument !== loaded) return;
+				place(loaded, section, widthPx);
+				untrack(() => remark());
 			});
 		};
 		frame.srcdoc = section.html;
 	});
 
 	$effect(() => {
+		columnShift;
 		words;
 		activeWord;
 		sentenceStart;
 		sentenceEnd;
 		ready;
-		remark();
+		untrack(() => remark());
 	});
 </script>
 

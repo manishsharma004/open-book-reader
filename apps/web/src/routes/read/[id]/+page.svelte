@@ -1251,7 +1251,7 @@
 										{#if word.role === 'heading' && words[index - 1]?.role !== 'heading'}<br />{/if}
 										<button
 											type="button"
-											class="rounded-sm"
+											class="rounded-[1px]"
 											class:mt-4={word.role === 'heading' && words[index - 1]?.role !== 'heading'}
 											class:text-xl={word.role === 'heading'}
 											style:background={wordBackdrop(
@@ -1279,7 +1279,7 @@
 										{@const box = wordBox(word)}
 										<button
 											type="button"
-											class="pointer-events-auto absolute rounded-sm"
+											class="pointer-events-auto absolute rounded-[1px]"
 											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{wordBackdrop(
 												index === activeWord || activeWord === -2,
 												readyWords[index] === true,

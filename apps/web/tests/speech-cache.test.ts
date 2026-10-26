@@ -22,3 +22,15 @@ test('the same words and voice share one speech cache id', async () => {
 	assert.equal(left, right);
 	assert.notEqual(left, other);
 });
+
+test('a cache id still hashes when the page has no Web Crypto', async () => {
+	const subtle = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+	Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: undefined });
+	try {
+		const id = await speechCacheId('book-a', clip);
+		assert.match(id, /^[0-9a-f]{64}$/);
+		assert.equal(id, await speechCacheId('book-a', clip));
+	} finally {
+		if (subtle) Object.defineProperty(globalThis.crypto, 'subtle', subtle);
+	}
+});
