@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
 	import EpubStage from '#lib/components/epub-stage.svelte';
@@ -466,7 +467,7 @@
 						if (cancelled) return;
 						if (upgraded.id !== found.id) {
 							await deleteBook(found);
-							if (!cancelled) await goto(`/read/${upgraded.id}`);
+							if (!cancelled) await goto(resolve('/read/[id]', { id: upgraded.id }));
 							return;
 						}
 						book = upgraded;
@@ -1147,7 +1148,7 @@
 		<button type="button" class="fixed inset-0 z-30 bg-black/40" aria-label="Close the side panel" data-drawer-scrim onclick={() => { setOutline(false); setPipeline(false); }}></button>
 	{/if}
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
-		<Button href="/" variant="ghost" size="sm">Library</Button>
+		<Button href={resolve('/')} variant="ghost" size="sm">Library</Button>
 		{#if chapters.length > 0}
 			<Button variant={outlineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={outlineOpen} data-chapters-toggle onclick={() => setOutline(!outlineOpen)}>
 				Chapters
@@ -1184,7 +1185,7 @@
 		>
 			{document.documentElement.classList.contains('dark') ? 'Day' : 'Night'}
 		</Button>
-		<Button href="/settings" variant="ghost" size="sm">Settings</Button>
+		<Button href={resolve('/settings')} variant="ghost" size="sm">Settings</Button>
 	</header>
 
 	{#if error}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { appServer } from '#lib/app-server.js';
 	import AppHeader from '#lib/components/app-header.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -25,6 +27,7 @@
 	let busy = $state('');
 	let error = $state('');
 	let loaded = $state(false);
+	let browserCatalog = $state(false);
 	let searchGen = 0;
 
 	const provider = $derived(providers.find((item) => item.id === providerId) ?? null);
@@ -32,6 +35,7 @@
 
 	async function loadProviders() {
 		try {
+			browserCatalog = !(await appServer()).present;
 			providers = await listProviders();
 			providerId = providers[0]?.id ?? '';
 			const browser = navigator.language?.slice(0, 2).toLowerCase() ?? 'en';
@@ -94,7 +98,7 @@
 					: format.mediaType === 'application/epub+zip'
 						? await saveEpubFile(file, book.title, cover)
 						: await saveTextFile(file, book.title, cover);
-			await goto(`/read/${saved.book.id}`);
+			await goto(resolve('/read/[id]', { id: saved.book.id }));
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not keep that file.';
 			if (busy === book.id) busy = '';
@@ -109,10 +113,14 @@
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Open books</h1>
 			<p class="text-muted-foreground mt-1 max-w-xl text-sm">
-				The search is sent to that provider through the app server and is not kept. A file you add stays in this browser.
+				{#if browserCatalog}
+					Project Gutenberg text and PDF load in this browser. EPUB and the other catalogs need the Open Book Reader server. A file you add stays in this browser.
+				{:else}
+					The search is sent to that provider through the app server and is not kept. A file you add stays in this browser.
+				{/if}
 			</p>
 		</div>
-		<Button href="/" variant="ghost">Library</Button>
+		<Button href={resolve('/')} variant="ghost">Library</Button>
 	</div>
 
 	{#if !loaded}
@@ -186,15 +194,18 @@
 
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each books as book (`${book.provider}:${book.id}`)}
+				{@const cover = coverPath(book.provider, book.id)}
 				<li>
 					<Card.Root>
 						<div class="bg-muted flex items-center justify-center">
-							<img
-								src={coverPath(book.provider, book.id)}
-								alt=""
-								class="max-h-80 w-auto max-w-full object-contain"
-								onerror={(event) => ((event.currentTarget as HTMLImageElement).style.display = 'none')}
-							/>
+							{#if cover}
+								<img
+									src={cover}
+									alt=""
+									class="max-h-80 w-auto max-w-full object-contain"
+									onerror={(event) => ((event.currentTarget as HTMLImageElement).style.display = 'none')}
+								/>
+							{/if}
 						</div>
 						<Card.Header>
 							<Card.Title class="line-clamp-2 text-base">{book.title}</Card.Title>

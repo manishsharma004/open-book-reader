@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "node scripts/copy-tesseract.mjs && vite build",
+		"build": "node scripts/copy-tesseract.mjs && vite build && node scripts/spa-fallback.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import UploadIcon from '@lucide/svelte/icons/upload';
 	import AppHeader from '#lib/components/app-header.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
@@ -62,7 +63,7 @@
 			password = '';
 			needsPassword = false;
 			if (saved.existing) {
-				await goto(`/read/${saved.book.id}`);
+				await goto(resolve('/read/[id]', { id: saved.book.id }));
 				return;
 			}
 			await refresh();
@@ -106,7 +107,7 @@
 			void saveEpubFile(file)
 				.then(async (saved) => {
 					open = false;
-					if (saved.existing) await goto(`/read/${saved.book.id}`);
+					if (saved.existing) await goto(resolve('/read/[id]', { id: saved.book.id }));
 					else await refresh();
 				})
 				.catch((caught) => {
@@ -170,7 +171,7 @@
 			</p>
 		</div>
 		<div class="flex gap-2">
-			<Button href="/open" variant="secondary">Browse open books</Button>
+			<Button href={resolve('/open')} variant="secondary">Browse open books</Button>
 			<Button onclick={() => (open = true)}>Add book</Button>
 		</div>
 	</div>
@@ -182,7 +183,7 @@
 				<Card.Description>Add a PDF or EPUB you own, or browse books that are free to keep. Either way it stays in this browser.</Card.Description>
 			</Card.Header>
 			<Card.Footer class="gap-2">
-				<Button href="/open" variant="secondary">Browse open books</Button>
+				<Button href={resolve('/open')} variant="secondary">Browse open books</Button>
 				<Button variant="secondary" onclick={() => (open = true)}>Add book</Button>
 			</Card.Footer>
 		</Card.Root>
@@ -191,7 +192,7 @@
 			{#each books as book (book.id)}
 				<li>
 					<Card.Root class="overflow-hidden">
-						<a href="/read/{book.id}" class="bg-muted flex h-64 w-full shrink-0 items-center justify-center">
+						<a href={resolve('/read/[id]', { id: book.id })} class="bg-muted flex h-64 w-full shrink-0 items-center justify-center">
 							{#if covers[book.id]}
 								<img src={covers[book.id]} alt="" class="max-h-full max-w-full object-contain" />
 							{/if}

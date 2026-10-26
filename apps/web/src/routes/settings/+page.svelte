@@ -8,15 +8,13 @@
 	import { EMOTIONS, applyTtsVendorDefaults, saveVoiceSample, voiceSample, type TtsVendor } from '#lib/settings.js';
 	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import type { Palette } from '#lib/theme.js';
+	import { appServer, type AppServerState } from '#lib/app-server.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
 	import PocketDeviceBadge from '#lib/components/pocket-device-badge.svelte';
 
-	type Health = { version: string; ffmpeg: boolean; maxBodyBytes: number };
-
-	let health = $state<Health | null>(null);
-	let healthError = $state('');
+	let server = $state<AppServerState | null>(null);
 	let saved = $state('');
 	let vllmResult = $state('');
 	let emotionResult = $state('');
@@ -28,14 +26,9 @@
 	const settings = $derived(settingsState.current);
 
 	$effect(() => {
-		fetch('/v1/health')
-			.then(async (response) => {
-				if (!response.ok) throw new Error(`${response.status}`);
-				health = (await response.json()) as Health;
-			})
-			.catch(() => {
-				healthError = 'The app server is not answering on this origin.';
-			});
+		void appServer().then((state) => {
+			server = state;
+		});
 	});
 
 	async function save() {
@@ -358,15 +351,16 @@
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>App server</Card.Title>
-			<Card.Description>The browser calls this origin only. Vendor calls go through /v1.</Card.Description>
+			<Card.Description>Vendor calls go through /v1 when this origin is the Open Book Reader server.</Card.Description>
 		</Card.Header>
 		<Card.Content class="flex flex-wrap items-center gap-2 text-sm">
-			{#if health}
-				<Badge>Reachable</Badge>
-				<span>Version {health.version}</span>
-				<span class="text-muted-foreground">Audio conversion {health.ffmpeg ? 'available' : 'not installed'}</span>
-			{:else if healthError}
-				<Badge variant="destructive">{healthError}</Badge>
+			{#if server?.present}
+				<Badge data-app-server="server">Reachable</Badge>
+				<span>Version {server.version}</span>
+				<span class="text-muted-foreground">Audio conversion {server.ffmpeg ? 'available' : 'not installed'}</span>
+			{:else if server}
+				<Badge data-app-server="browser">In this browser</Badge>
+				<span>Browser voice and On-device Pocket do not need the app server. Kokoro, Pocket, OpenAI, ElevenLabs, and the other catalogs do.</span>
 			{:else}
 				<span class="text-muted-foreground">Checking…</span>
 			{/if}

@@ -1,4 +1,5 @@
 import type { HandleClientError } from '@sveltejs/kit';
+import { apiUrl } from '#lib/api-url.js';
 
 export const handleError: HandleClientError = ({ error, message, event }) => {
 	const text = error instanceof Error && error.message ? error.message : message;
@@ -6,9 +7,9 @@ export const handleError: HandleClientError = ({ error, message, event }) => {
 	const payload = JSON.stringify({ route, message: text.slice(0, 300) });
 	try {
 		if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-			navigator.sendBeacon('/v1/log', new Blob([payload], { type: 'application/json' }));
+			navigator.sendBeacon(apiUrl('/v1/log'), new Blob([payload], { type: 'application/json' }));
 		} else {
-			void fetch('/v1/log', {
+			void fetch(apiUrl('/v1/log'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: payload,

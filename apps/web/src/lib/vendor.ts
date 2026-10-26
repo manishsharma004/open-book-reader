@@ -1,5 +1,19 @@
+import { apiUrl } from '#lib/api-url.js';
+import { appServer } from '#lib/app-server.js';
 import { canonEmotion } from '#lib/speech.js';
 import type { EmotionName, Endpoint, TtsSettings } from '#lib/settings.js';
+
+const HOSTED_SPEECH =
+	'Kokoro, Pocket, OpenAI, and ElevenLabs need the Open Book Reader server. This copy speaks with the browser voice or On-device Pocket.';
+const HOSTED_TEXT =
+	'Text and emotion models need the Open Book Reader server. Reading and the browser voice still work in this copy.';
+const HOSTED_CLONE =
+	'Creating a hosted voice needs the Open Book Reader server. On-device Pocket uses the saved sample in this browser.';
+
+async function requireServer(message: string) {
+	const server = await appServer();
+	if (!server.present) throw new Error(message);
+}
 
 export type TimedWord = { text: string; start: number; end: number };
 
@@ -11,7 +25,7 @@ export type SpeechResult = {
 };
 
 async function postJson(path: string, body: unknown, signal?: AbortSignal) {
-	const response = await fetch(path, {
+	const response = await fetch(apiUrl(path), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify(body),
@@ -24,6 +38,7 @@ async function postJson(path: string, body: unknown, signal?: AbortSignal) {
 }
 
 export async function complete(endpoint: Endpoint, system: string, user: string, signal?: AbortSignal) {
+	await requireServer(HOSTED_TEXT);
 	const payload = await postJson(
 		'/v1/complete',
 		{
@@ -53,6 +68,7 @@ export async function speak(
 		const sample = sampleBase64 && attachSample ? Uint8Array.from(atob(sampleBase64), (char) => char.charCodeAt(0)) : null;
 		return speakPocketDevice(settings, text, sample, signal);
 	}
+	await requireServer(HOSTED_SPEECH);
 	const payload = await postJson(
 		'/v1/speak',
 		{
@@ -92,6 +108,7 @@ export async function speak(
 }
 
 export async function cloneVoice(settings: TtsSettings, name: string, sampleBase64: string, mime: string) {
+	await requireServer(HOSTED_CLONE);
 	const payload = await postJson('/v1/voices/clone', {
 		vendor: settings.vendor,
 		baseUrl: settings.baseUrl,

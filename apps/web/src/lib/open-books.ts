@@ -1,3 +1,14 @@
+import { apiUrl } from '#lib/api-url.js';
+import { appServer } from '#lib/app-server.js';
+import {
+	GUTENBERG_BROWSER_LANGUAGES,
+	browserCover,
+	downloadGutenbergBrowser,
+	downloadGutenbergCover,
+	gutenbergSearchUrl,
+	parseGutenbergOpds
+} from '#lib/gutenberg-browser.js';
+
 export type OpenProvider = {
 	id: string;
 	name: string;
@@ -24,6 +35,8 @@ export type OpenBook = {
 	formats: OpenFormat[];
 };
 
+let catalogMode: 'unknown' | 'server' | 'browser' = 'unknown';
+
 function bookPath(id: string) {
 	return id.split('/').map((part) => encodeURIComponent(part)).join('/');
 }
@@ -40,8 +53,22 @@ async function readError(response: Response) {
 	return text.slice(0, 300);
 }
 
+const browserProvider: OpenProvider = {
+	id: 'gutenberg',
+	name: 'Project Gutenberg',
+	search: true,
+	languages: GUTENBERG_BROWSER_LANGUAGES,
+	note: 'Text and PDF load in this browser. EPUB needs the Open Book Reader server.'
+};
+
 export async function listProviders(): Promise<OpenProvider[]> {
-	const response = await fetch('/v1/open-books/providers');
+	const server = await appServer();
+	if (!server.present) {
+		catalogMode = 'browser';
+		return [browserProvider];
+	}
+	catalogMode = 'server';
+	const response = await fetch(apiUrl('/v1/open-books/providers'));
 	if (!response.ok) throw new Error(await readError(response));
 	const body = (await response.json()) as { providers: OpenProvider[] };
 	return body.providers;
@@ -52,7 +79,16 @@ export async function searchOpenBooks(provider: string, q: string, language: str
 	if (q) params.set('q', q);
 	if (language) params.set('language', language);
 	if (page) params.set('page', page);
-	const response = await fetch(`/v1/open-books/${encodeURIComponent(provider)}?${params}`);
+	if ((await appServer()).present === false || catalogMode === 'browser') {
+		if (provider !== 'gutenberg') {
+			throw new Error('That catalog needs the Open Book Reader server. This browser copy searches Project Gutenberg.');
+		}
+		catalogMode = 'browser';
+		const response = await fetch(gutenbergSearchUrl(q, language, page));
+		if (!response.ok) throw new Error('Project Gutenberg did not answer. The books already in this browser are still here.');
+		return parseGutenbergOpds(await response.text(), language);
+	}
+	const response = await fetch(apiUrl(`/v1/open-books/${encodeURIComponent(provider)}?${params}`));
 	if (!response.ok) throw new Error(await readError(response));
 	return (await response.json()) as { books: OpenBook[]; page: string | null };
 }
@@ -68,7 +104,13 @@ function filenameOf(header: string | null, fallback: string) {
 }
 
 export async function downloadOpenBook(provider: string, id: string, mediaType: string, title: string) {
-	const response = await fetch(`/v1/open-books/${encodeURIComponent(provider)}/${bookPath(id)}`, {
+	if ((await appServer()).present === false || catalogMode === 'browser') {
+		if (provider !== 'gutenberg') {
+			throw new Error('That catalog needs the Open Book Reader server.');
+		}
+		return downloadGutenbergBrowser(id, mediaType, title);
+	}
+	const response = await fetch(apiUrl(`/v1/open-books/${encodeURIComponent(provider)}/${bookPath(id)}`), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ mediaType })
@@ -81,13 +123,23 @@ export async function downloadOpenBook(provider: string, id: string, mediaType: 
 }
 
 export function coverPath(provider: string, id: string) {
-	return `/v1/open-books/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/cover`;
+	if (provider === 'gutenberg') {
+		const inline = browserCover(id);
+		if (inline) return inline;
+	}
+	if (catalogMode === 'browser') return '';
+	return apiUrl(`/v1/open-books/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/cover`);
 }
 
 /** The picture on the catalog card. A missing cover does not block saving the book. */
 export async function downloadCover(provider: string, id: string): Promise<Blob | null> {
+	if (provider === 'gutenberg' && (catalogMode === 'browser' || browserCover(id))) {
+		return downloadGutenbergCover(id);
+	}
 	try {
-		const response = await fetch(coverPath(provider, id));
+		const path = coverPath(provider, id);
+		if (!path) return null;
+		const response = await fetch(path);
 		if (!response.ok) return null;
 		const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
 		if (!type.startsWith('image/')) return null;
