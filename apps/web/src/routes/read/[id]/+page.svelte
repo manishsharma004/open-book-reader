@@ -11,6 +11,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
 	import { deleteBook, getBlob, getBook, updateBook, type Book } from '#lib/db.js';
+	import { clampProgress, sameProgress, storedProgress } from '#lib/reading-progress.js';
 	import { gutenbergEbookId } from '#lib/gutenberg.js';
 	import { replaceWithEpub } from '#lib/library.js';
 	import { downloadCover, downloadOpenBook } from '#lib/open-books.js';
@@ -91,7 +92,12 @@
 	let paintGen = 0;
 	let paintTail: Promise<unknown> = Promise.resolve();
 	let playToken = 0;
-	let resumeWord = 0;
+	let resumeWord = $state(0);
+	let pendingWord = 0;
+	let progressReady = $state(false);
+	let progressTimer = 0;
+	let bookWriting = false;
+	let bookDirty = false;
 	let heldAudioTime: number | null = null;
 	let clockFrame = 0;
 	let clockRunning = false;
@@ -322,8 +328,6 @@
 		heldClip = -1;
 		playingClip = -1;
 		waitingClip = -1;
-		resumeWord = 0;
-		activeWord = -1;
 		playing = false;
 		voiceNote = '';
 	}
@@ -427,9 +431,63 @@
 		});
 	});
 
+	function placeProgress(found: Book) {
+		const saved = storedProgress(found);
+		pendingWord = saved.wordIndex;
+		resumeWord = saved.wordIndex;
+		activeWord = saved.wordIndex > 0 ? saved.wordIndex : -1;
+		pageIndex = saved.pageIndex;
+		progressReady = true;
+	}
+
+	async function flushBook() {
+		bookDirty = true;
+		if (bookWriting) return;
+		bookWriting = true;
+		try {
+			while (bookDirty) {
+				bookDirty = false;
+				if (!book) return;
+				await updateBook($state.snapshot(book));
+			}
+		} finally {
+			bookWriting = false;
+			if (bookDirty) void flushBook();
+		}
+	}
+
+	function writeProgress(immediate = false) {
+		if (!progressReady || !book || book.pageCount < 1) return;
+		const word = activeWord >= 0 ? activeWord : resumeWord;
+		const next = clampProgress(book.pageCount, pageIndex, word);
+		if (sameProgress(book.progress, next)) return;
+		book = { ...book, progress: next };
+		window.clearTimeout(progressTimer);
+		if (immediate) void flushBook();
+		else progressTimer = window.setTimeout(() => void flushBook(), 300);
+	}
+
+	$effect(() => {
+		if (!progressReady || !book) return;
+		pageIndex;
+		activeWord;
+		resumeWord;
+		writeProgress();
+	});
+
+	$effect(() => {
+		const flush = () => writeProgress(true);
+		window.addEventListener('pagehide', flush);
+		return () => {
+			window.removeEventListener('pagehide', flush);
+			flush();
+		};
+	});
+
 	$effect(() => {
 		const bookId = id;
 		let cancelled = false;
+		progressReady = false;
 		halt();
 		buffering = true;
 		epubData = null;
@@ -470,11 +528,15 @@
 							if (!cancelled) await goto(resolve('/read/[id]', { id: upgraded.id }));
 							return;
 						}
-						book = upgraded;
+						book = { ...upgraded, progress: { pageIndex: 0, wordIndex: 0 } };
 						attachDocument(null);
 						attachText(null);
 						epubData = await file.arrayBuffer();
 						pageIndex = 0;
+						pendingWord = 0;
+						resumeWord = 0;
+						progressReady = true;
+						void flushBook();
 						return;
 					} catch {
 						if (cancelled) return;
@@ -482,12 +544,14 @@
 				}
 				const pages = paginateText(raw);
 				attachText(pages);
+				placeProgress(found);
 				if (found.chapters == null) void rememberChapters(found, chaptersFromText(pages));
+				pdfToken += 1;
 			} else if (found.kind === 'epub') {
 				attachDocument(null);
 				attachText(null);
+				placeProgress(found);
 				epubData = await blob.arrayBuffer();
-				pageIndex = 0;
 				return;
 			} else {
 				pdf = await openPdf(await blob.arrayBuffer());
@@ -501,9 +565,10 @@
 					const list = await chaptersFromDocument(document).catch(() => []);
 					if (!cancelled) await rememberChapters(found, list);
 				}
+				if (cancelled) return;
+				placeProgress(found);
+				pdfToken += 1;
 			}
-			pageIndex = 0;
-			pdfToken += 1;
 		})().catch((caught) => {
 			buffering = false;
 			error = caught instanceof Error ? caught.message : 'Could not open the book.';
@@ -526,7 +591,12 @@
 		let cancelled = false;
 		const resumeHere = carryPage === index;
 		if (!resumeHere) carryPage = -1;
+		// Word updates during playback must not rebuild the page. Read the saved word
+		// only when the page, settings, or layout token actually changes.
+		const startWord = untrack(() => (pendingWord > 0 ? pendingWord : resumeHere ? 0 : resumeWord));
+		pendingWord = 0;
 		halt();
+		resumeWord = resumeHere ? 0 : startWord;
 		activeWord = -1;
 		const timer = setTimeout(() => {
 			if (!cancelled && gen === viewGen) buffering = true;
@@ -543,12 +613,18 @@
 				await paint();
 				if (cancelled || gen !== viewGen) return;
 				const speakable = page.clips.length > 0 || page.words.some((word) => word.role !== 'header');
+				const hasWords = page.words.length > 0;
+				const word = hasWords ? Math.min(startWord, page.words.length - 1) : startWord;
 				if (resumeHere && !speakable && index < pageCount - 1) {
 					carryPage = index + 1;
 					jump(index + 1);
 					return;
 				}
-				if (resumeHere || (currentSettings.tts.vendor !== 'browser' && page.clips.length > 0)) playFrom(0);
+				if (resumeHere || (currentSettings.tts.vendor !== 'browser' && page.clips.length > 0)) playFrom(resumeHere ? 0 : word);
+				else if (hasWords) {
+					resumeWord = word;
+					activeWord = word > 0 ? word : -1;
+				}
 			})
 			.catch((caught) => {
 				if (caught instanceof DOMException && caught.name === 'AbortError') return;
@@ -643,7 +719,7 @@
 			epubReady = true;
 			pdfToken += 1;
 		}
-		if (done && book) void updateBook($state.snapshot(book));
+		if (done && book) void flushBook();
 	}
 
 	function onEpubFail(message: string) {
@@ -657,16 +733,31 @@
 	}
 
 	async function rememberChapters(source: Book, list: Book['chapters']) {
-		const next = { ...source, chapters: list ?? [] };
-		await updateBook(next);
-		if (book?.id === next.id) book = { ...book, chapters: next.chapters };
+		const current = book?.id === source.id ? book : source;
+		book = { ...current, chapters: list ?? [] };
+		await flushBook();
 	}
 
 	function jump(next: number) {
 		if (!book) return;
 		scrub = null;
+		pendingWord = 0;
+		resumeWord = 0;
+		activeWord = -1;
 		pageIndex = Math.min(book.pageCount - 1, Math.max(0, next));
 		if (narrow) setOutline(false);
+	}
+
+	function startOver() {
+		pendingWord = 0;
+		resumeWord = 0;
+		activeWord = -1;
+		if (!book || pageIndex === 0) {
+			halt();
+			writeProgress(true);
+			return;
+		}
+		jump(0);
 	}
 
 	function goToPage(event?: Event) {
@@ -935,29 +1026,37 @@
 
 	function placeInClip(clip: SpeechClip, fromWord: number, continueTime: number | null) {
 		if (!audio) return;
-		if (continueTime != null) {
-			audio.currentTime = continueTime;
-			return;
-		}
-		const local = fromWord - clip.wordStart;
-		if (local <= 0) {
-			if (audio.currentTime > 0) audio.currentTime = 0;
-			return;
-		}
-		const timing = clip.timings?.find((item) => item.wordIndex >= fromWord);
-		if (timing) {
-			audio.currentTime = timing.start;
-			return;
-		}
-		if (Number.isFinite(audio.duration) && audio.duration > 0) {
-			const texts = words.slice(clip.wordStart, clip.wordEnd).map((word) => word.text);
-			audio.currentTime = timeForWord(texts, local, audio.duration, audio.playbackRate || rate);
-		}
+		const target = clipSeekTime(clip, fromWord, continueTime);
+		if (target == null || Math.abs(audio.currentTime - target) < 0.02) return;
+		audio.currentTime = target;
 	}
 
-	function followClip(token: number, clip: SpeechClip) {
+	function clipSeekTime(clip: SpeechClip, fromWord: number, continueTime: number | null) {
+		if (continueTime != null) return continueTime;
+		const local = fromWord - clip.wordStart;
+		if (local <= 0) return 0;
+		const timing = clip.timings?.find((item) => item.wordIndex >= fromWord);
+		if (timing) return timing.start;
+		if (audio && Number.isFinite(audio.duration) && audio.duration > 0) {
+			const texts = words.slice(clip.wordStart, clip.wordEnd).map((word) => word.text);
+			return timeForWord(texts, local, audio.duration, audio.playbackRate || rate);
+		}
+		return null;
+	}
+
+	function followClip(token: number, clip: SpeechClip, fromWord: number, continueTime: number | null) {
 		const step = () => {
 			if (token !== playToken || !audio || !prepared) return;
+			const target = clipSeekTime(clip, fromWord, continueTime);
+			// A seek to a later word leaves currentTime at 0 until the media clock moves.
+			// Recording that 0 would replace the saved word before the voice reaches it.
+			if (target == null || (target > 0.05 && audio.currentTime + 0.08 < target)) {
+				if (target != null && target > 0.05 && audio.readyState >= 1 && audio.currentTime + 0.08 < target) {
+					audio.currentTime = target;
+				}
+				if (!audio.paused && !audio.ended) clockFrame = requestAnimationFrame(step);
+				return;
+			}
 			if (clip.timings?.length) {
 				const hit = indexForTimings(clip.timings, audio.currentTime);
 				if (hit >= 0) {
@@ -1038,7 +1137,8 @@
 		});
 		void player.play().then(() => {
 			if (token !== playToken) return;
-			followClip(token, clip);
+			placeInClip(clip, fromWord, continueTime);
+			followClip(token, clip, fromWord, continueTime);
 		}).catch((caught) => {
 			if (token !== playToken) return;
 			playing = false;
@@ -1381,8 +1481,17 @@
 		</div>
 	{/if}
 
-	<footer class="border-border bg-card shrink-0 border-t px-4 py-3">
+	<footer class="border-border bg-card shrink-0 border-t px-4 py-3" data-resume-word={activeWord >= 0 ? activeWord : resumeWord}>
 		<div class="flex flex-wrap items-center gap-3">
+			<Button
+				variant="ghost"
+				size="sm"
+				data-start-over
+				onclick={startOver}
+				disabled={!book || (pageIndex === 0 && resumeWord <= 0 && activeWord <= 0)}
+			>
+				Start over
+			</Button>
 			<Button variant="outline" size="sm" onclick={() => jump(leafTarget(-1))} disabled={!book || leafTarget(-1) === pageIndex}>Previous</Button>
 			<Button onclick={toggle} disabled={buffering || words.length === 0}>{playing ? 'Pause' : 'Play'}</Button>
 			<Button variant="outline" size="sm" onclick={() => jump(leafTarget(1))} disabled={!book || leafTarget(1) === pageIndex}>

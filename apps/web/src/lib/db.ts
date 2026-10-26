@@ -12,6 +12,8 @@ export type Book = {
 	coverId: string | null;
 	kind?: 'pdf' | 'text' | 'epub';
 	chapters?: Chapter[];
+	/** Last page and word in this browser. Opening the book returns here. */
+	progress?: { pageIndex: number; wordIndex: number } | null;
 };
 
 type BlobRecord = {

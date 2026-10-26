@@ -199,8 +199,8 @@
 						</a>
 						<Card.Header>
 							<Card.Title class="line-clamp-2 min-h-11 text-base">{book.title}</Card.Title>
-							<Card.Description>
-								{book.pageCount} pages{book.chapters && book.chapters.length > 1 ? ` · ${book.chapters.length} chapters` : ''}
+							<Card.Description data-progress-page={book.progress?.pageIndex ?? 0}>
+								{book.pageCount} pages{book.chapters && book.chapters.length > 1 ? ` · ${book.chapters.length} chapters` : ''}{book.progress && book.progress.pageIndex > 0 ? ` · page ${book.progress.pageIndex + 1}` : ''}
 							</Card.Description>
 						</Card.Header>
 						<Card.Footer class="gap-2">
