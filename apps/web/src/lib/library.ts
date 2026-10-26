@@ -1,3 +1,4 @@
+import { chaptersFromDocument, chaptersFromText } from '#lib/chapters.js';
 import { findBookByHash, saveBook, sha256, type Book } from '#lib/db.js';
 import { randomId } from '#lib/hash.js';
 import { coverBlob, openPdf } from '#lib/pdf.js';
@@ -12,6 +13,7 @@ export async function savePdfFile(file: File, password?: string): Promise<{ book
 	const cover = await coverBlob(first);
 	const meta = await pdf.getMetadata().catch(() => null);
 	const info = meta?.info as { Title?: string } | undefined;
+	const chapters = await chaptersFromDocument(pdf).catch(() => []);
 	const book: Book = {
 		id: randomId(),
 		title: info?.Title?.trim() || file.name.replace(/\.pdf$/i, ''),
@@ -20,7 +22,8 @@ export async function savePdfFile(file: File, password?: string): Promise<{ book
 		addedAt: Date.now(),
 		blobId: randomId(),
 		coverId: randomId(),
-		kind: 'pdf'
+		kind: 'pdf',
+		chapters
 	};
 	await saveBook(book, file, cover);
 	await pdf.cleanup();
@@ -40,7 +43,8 @@ export async function saveTextFile(file: File, title: string): Promise<{ book: B
 		addedAt: Date.now(),
 		blobId: randomId(),
 		coverId: null,
-		kind: 'text'
+		kind: 'text',
+		chapters: chaptersFromText(pages)
 	};
 	await saveBook(book, file, null);
 	return { book, existing: false };

@@ -36,7 +36,7 @@ Vendor APIs, model names, and retirement dates change. When a spec states a vend
 
 ## Later sessions
 
-`CLAUDE.md` is the handoff for the machine this repo is running on. Read it before changing speech, Pocket, or processes. `DESIGN.md` §1.2 is what the app does today. `docs/LEARNINGS.md` records why, and which fixes failed. The rest of `specs/discussion/` is the target pipeline and is not built.
+`CLAUDE.md` is the handoff for the machine this repo is running on. Read it before changing speech, Pocket, or processes. `DESIGN.md` §1.2 is what the app does today, including the open-book browser and the chapter list of title and page. `docs/LEARNINGS.md` records why, and which fixes failed. The rest of `specs/discussion/` is the target pipeline and is not built.
 
 - Publish services only on ports 7500–7510. The app server is 7507. Pocket is 7508. Do not bind or document a service outside that range.
 - A change under `apps/web` is served from `apps/web/build` after `npm run build`. Do not restart the app server for a web-only change. Restart it only when `apps/server` changes. Restart Pocket only when `services/pocket` changes.

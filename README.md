@@ -1,6 +1,6 @@
 # Open Book Reader
 
-The browser keeps the book. FastAPI serves the Svelte app and a stateless `/v1` proxy. Speech for the open page and the pages ahead is prepared in short clips. `specs/discussion/DESIGN.md` §1.2 is what the app does today. The rest of `specs/discussion/` is the target pipeline and is not built. `docs/LEARNINGS.md` records why the reader works this way.
+The browser keeps the book. FastAPI serves the Svelte app and a stateless `/v1` proxy. Speech for the open page and the pages ahead is prepared in short clips. The reader jumps to chapters taken from a PDF outline or from headings in the text. **Browse open books** downloads a file the source already gives away into the same library. `specs/discussion/DESIGN.md` §1.2 is what the app does today. The rest of `specs/discussion/` is the target pipeline and is not built. `docs/LEARNINGS.md` records why the reader works this way.
 
 ## Run
 

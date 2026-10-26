@@ -129,7 +129,9 @@
 						</a>
 						<Card.Header>
 							<Card.Title class="line-clamp-2 text-base">{book.title}</Card.Title>
-							<Card.Description>{book.pageCount} pages</Card.Description>
+							<Card.Description>
+								{book.pageCount} pages{book.chapters && book.chapters.length > 1 ? ` · ${book.chapters.length} chapters` : ''}
+							</Card.Description>
 						</Card.Header>
 						<Card.Footer class="gap-2">
 							<Badge>Ready to read</Badge>
