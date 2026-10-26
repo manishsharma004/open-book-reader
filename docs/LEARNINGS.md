@@ -10,6 +10,10 @@ Do not split that on the server. A server-side 45-token cutter was started and r
 
 The buffer is still the open page plus the next 2 or 3 pages. Capping the buffer at a few dozen words was tried and rejected. The clips are small. The window stays full. The open page is queued first.
 
+## Clip updates have to stay visible to the reader
+
+The prepared page is filled in after the reader stores it. Speech writes `audioUrl` on the clips in that object, then the buffer tick asks the reader to look again. Putting the page in a deep `$state` proxy freezes each clip field at the moment of assignment, so the tick runs and still sees no audio. Playback then waits forever. Leaving the page and coming back assigns the page again, after the URLs exist, which is why that was the only way it started. Play and Pause call the same lookup, so they wait too. The page is `$state.raw`, and the buffer tick is what refreshes it.
+
 ## Play starts on the first clip
 
 Waiting for emotion analysis, or for every clip on the page, held the page after the words were already known. The page is returned after the text is read and the clips are queued. Emotion only updates clips that are still pending. The reader calls play from the first word when the page appears. If the browser blocks autoplay, the player says to press Play. That is not a fatal error.
