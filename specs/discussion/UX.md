@@ -70,6 +70,7 @@ One screen, and one route, for every provider. Adding a provider does not add a 
 - A result is the same card everywhere: cover, title, authors, language, license note, and one button per format. **Add PDF** and **Add text** download that file through the app server and hand the bytes to the same processing as a file from disk, including the duplicate-hash check and the language control. The reader does not pick the file again. **EPUB** is visible and disabled, with "EPUB is not paginated yet."
 - A book already in this browser, by the same hash, says **Open** instead of Add.
 - The screen says the search is sent to that provider through the app server and is not kept.
+- A loader replaces the grid while the catalog responds. The next page says **Loading…**. Saving a file shows a loader until the book opens. An empty result says "No books matched that search." Opening a book shows the page loader at once. Adding a PDF from disk shows a loader in the dialog while the file is read.
 - With no network: "Open books need the network. The books already in this browser are still here."
 
 ### 3.3 Add book

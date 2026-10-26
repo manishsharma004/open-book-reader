@@ -24,8 +24,10 @@
 	let busy = $state('');
 	let error = $state('');
 	let loaded = $state(false);
+	let searchGen = 0;
 
 	const provider = $derived(providers.find((item) => item.id === providerId) ?? null);
+	const saving = $derived(books.find((book) => book.id === busy) ?? null);
 
 	async function loadProviders() {
 		try {
@@ -46,18 +48,24 @@
 		void loadProviders();
 	});
 
-	async function runSearch(page: string | null) {
-		if (!provider) return;
-		busy = 'search';
+	async function runSearch(page: string | null, id = providerId) {
+		const current = providers.find((item) => item.id === id);
+		if (!current) return;
+		const gen = ++searchGen;
+		const fresh = page == null;
+		busy = fresh ? 'search' : 'more';
 		error = '';
+		if (fresh) books = [];
 		try {
-			const found = await searchOpenBooks(provider.id, provider.search ? query.trim() : '', language, page);
+			const found = await searchOpenBooks(current.id, current.search ? query.trim() : '', language, page);
+			if (gen !== searchGen) return;
 			books = page ? [...books, ...found.books] : found.books;
 			nextPage = found.page;
 		} catch (caught) {
+			if (gen !== searchGen) return;
 			error = caught instanceof Error ? caught.message : 'Open books need the network. The books already in this browser are still here.';
 		} finally {
-			busy = '';
+			if (gen === searchGen && (busy === 'search' || busy === 'more')) busy = '';
 		}
 	}
 
@@ -67,7 +75,7 @@
 		if (next && !next.languages.includes(language)) language = next.languages[0] ?? language;
 		books = [];
 		nextPage = null;
-		void runSearch(null);
+		void runSearch(null, id);
 	}
 
 	async function add(book: OpenBook, format: OpenFormat) {
@@ -81,14 +89,14 @@
 			await goto(`/read/${saved.book.id}`);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not keep that file.';
-			busy = '';
+			if (busy === book.id) busy = '';
 		}
 	}
 </script>
 
 <AppHeader />
 
-<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8" data-open-books>
+<main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8" data-open-books aria-busy={busy === 'search' || !loaded}>
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Open books</h1>
@@ -100,7 +108,10 @@
 	</div>
 
 	{#if !loaded}
-		<p class="text-muted-foreground text-sm">Loading providers…</p>
+		<div class="bg-card border-border flex w-72 flex-col items-center gap-3 rounded-xl border px-6 py-5 shadow-sm" data-catalog-loader>
+			<div class="border-muted border-t-primary size-10 animate-spin rounded-full border-2"></div>
+			<p class="text-sm font-medium">Loading catalogs…</p>
+		</div>
 	{:else if providers.length === 0}
 		<p class="text-sm">Open books need the network. The books already in this browser are still here.</p>
 	{:else}
@@ -131,7 +142,7 @@
 				class="max-w-sm"
 				placeholder={provider?.search ? 'Search' : provider?.note || 'Fixed list'}
 				bind:value={query}
-				disabled={!provider?.search || busy === 'search'}
+				disabled={!provider?.search || busy === 'search' || busy === 'more'}
 				aria-label="Search"
 			/>
 			<select
@@ -144,11 +155,25 @@
 					<option value={code}>{code}</option>
 				{/each}
 			</select>
-			<Button type="submit" disabled={busy === 'search'}>Search</Button>
+			<Button type="submit" disabled={busy === 'search' || busy === 'more'}>Search</Button>
 		</form>
 
 		{#if error}
 			<p class="text-destructive text-sm">{error}</p>
+		{/if}
+
+		{#if busy === 'search'}
+			<div class="bg-card border-border flex w-72 flex-col items-center gap-3 rounded-xl border px-6 py-5 shadow-sm" data-books-loader>
+				<div class="border-muted border-t-primary size-10 animate-spin rounded-full border-2"></div>
+				<p class="text-sm font-medium">Loading books…</p>
+			</div>
+		{:else if saving}
+			<div class="bg-card border-border flex w-80 items-center gap-3 rounded-xl border px-5 py-4 shadow-sm" data-save-loader>
+				<div class="border-muted border-t-primary size-8 shrink-0 animate-spin rounded-full border-2"></div>
+				<p class="text-sm font-medium">Saving {saving.title} in this browser…</p>
+			</div>
+		{:else if books.length === 0 && !error}
+			<p class="text-muted-foreground text-sm">No books matched that search.</p>
 		{/if}
 
 		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -182,7 +207,7 @@
 									title={format.addable ? '' : 'EPUB is not paginated yet.'}
 									onclick={() => add(book, format)}
 								>
-									{format.addable ? `Add ${format.label.toLowerCase()}` : format.label}
+									{busy === book.id ? 'Adding…' : format.addable ? `Add ${format.label.toLowerCase()}` : format.label}
 								</Button>
 							{/each}
 						</Card.Footer>
@@ -192,7 +217,9 @@
 		</ul>
 
 		{#if nextPage}
-			<Button variant="secondary" disabled={busy === 'search'} onclick={() => runSearch(nextPage)}>Next page</Button>
+			<Button variant="secondary" disabled={busy === 'search' || busy === 'more'} onclick={() => runSearch(nextPage)}>
+				{busy === 'more' ? 'Loading…' : 'Next page'}
+			</Button>
 		{/if}
 	{/if}
 </main>

@@ -71,7 +71,7 @@ What the running reader does:
 - Changing the page aborts queued work and the request already in flight. Pocket stops on the next generation step. The proxy answers 499.
 - Pace is in the player and in Settings. **Remove sample**, in both places, deletes the saved reference. Later speech uses the voice id.
 - The app server on port 7507 serves `apps/web/build` and `/v1`. A web-only change is live after `npm run build` in `apps/web`. Pocket is a separate process on port 7508. Restart a process only when its own code changed.
-- **Browse open books** lists the twelve catalogs in [Open books](#611-open-books). Search and download go through the app server. The file is saved in this browser like an upload. PDF and plain text can be added. EPUB is listed and is not added.
+- **Browse open books** lists the twelve catalogs in [Open books](#611-open-books). Search and download go through the app server. A loader stays up while a catalog responds and while a chosen file is saved in this browser. PDF and plain text can be added. EPUB is listed and is not added. Opening a book in the reader shows the page loader immediately.
 - Each book keeps `chapters`: a title and a page index. A PDF uses its outline when at least two entries name a page. Otherwise the text layer, or a plain-text book, is scanned for a chapter, part, or matter heading. A contents page of dot leaders is skipped. The same title repeated as a running header stays one chapter. The chapter menu in the reader jumps to that page. A book saved before this list existed gets it the next time it is opened.
 
 ### In scope for this design
