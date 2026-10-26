@@ -1,6 +1,6 @@
 import type { TtsVendor } from '#lib/settings.js';
 
-/** Built-in names for Pocket `english_18m_refl_2026-10` and the on-device English bundle. */
+/** Built-in names for the Pocket server model `english_18m_refl_2026-10`. */
 export const POCKET_VOICE_IDS = [
 	'alba',
 	'anna',
@@ -30,6 +30,22 @@ export const POCKET_VOICE_IDS = [
 	'stuart_bell',
 	'vera'
 ] as const;
+
+/** Built-in names in every published ONNX bundle, including `english_2026-04`. */
+export const POCKET_DEVICE_VOICE_IDS = [
+	'alba',
+	'azelma',
+	'cosette',
+	'eponine',
+	'fantine',
+	'javert',
+	'jean',
+	'marius'
+] as const;
+
+export function pocketDeviceVoice(voice: string): string {
+	return (POCKET_DEVICE_VOICE_IDS as readonly string[]).includes(voice) ? voice : 'alba';
+}
 
 /** English presets shipped with Kokoro. Kokoro does not clone. */
 export const KOKORO_VOICE_IDS = [
@@ -106,10 +122,16 @@ export function voiceCatalog(
 			items: KOKORO_VOICE_IDS.map((id) => ({ id, label: id }))
 		};
 	}
-	if (vendor === 'pocket' || vendor === 'pocket-device') {
+	if (vendor === 'pocket') {
 		return {
-			note: 'Built-in Pocket voices. alba is the default. A saved sample is used instead of this id.',
+			note: 'Built-in voices for the Pocket server. alba is the default. A saved sample is used instead of this id.',
 			items: POCKET_VOICE_IDS.map((id) => ({ id, label: id }))
+		};
+	}
+	if (vendor === 'pocket-device') {
+		return {
+			note: 'Built-in voices in the on-device ONNX bundle. alba is the default. A saved sample is used instead of this id.',
+			items: POCKET_DEVICE_VOICE_IDS.map((id) => ({ id, label: id }))
 		};
 	}
 	if (vendor === 'openai') {

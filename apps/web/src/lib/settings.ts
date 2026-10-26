@@ -1,4 +1,5 @@
 import { deleteBlob, getBlob, putBlob, readAppRecord, writeAppRecord } from '#lib/db.js';
+import { pocketDeviceVoice } from '#lib/voice-ids.js';
 import { SPEECH_CHUNK_WORDS, speechPace } from '#lib/speech-clips.js';
 import { randomId } from '#lib/hash.js';
 import { applyPalette, applyTheme, readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
@@ -151,7 +152,12 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 			baseUrl,
 			model: typeof ttsRaw.model === 'string' ? ttsRaw.model : base.tts.model,
 			apiKey: typeof ttsRaw.apiKey === 'string' ? ttsRaw.apiKey : '',
-			voice: typeof ttsRaw.voice === 'string' ? ttsRaw.voice : base.tts.voice
+			voice:
+				vendorName === 'pocket-device'
+					? pocketDeviceVoice(typeof ttsRaw.voice === 'string' ? ttsRaw.voice : '')
+					: typeof ttsRaw.voice === 'string'
+						? ttsRaw.voice
+						: base.tts.voice
 		}
 	};
 }
@@ -185,7 +191,7 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 		if (!tts.model || tts.model === 'kokoro' || tts.model === POCKET_MODEL || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
 			tts.model = POCKET_DEVICE_MODEL;
 		}
-		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
+		tts.voice = pocketDeviceVoice(tts.voice);
 		if (!tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = POCKET_ONNX_BASE;
 	}
 	if (tts.vendor === 'pocket' && previous === 'pocket-device') {

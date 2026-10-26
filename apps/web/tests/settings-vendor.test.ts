@@ -41,6 +41,10 @@ test('choosing on-device pocket points at the public onnx bundle', () => {
 	assert.equal(settings.tts.baseUrl, POCKET_ONNX_BASE);
 	const saved = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'alba', baseUrl: POCKET_ONNX_BASE } });
 	assert.equal(saved.tts.vendor, 'pocket-device');
+	const fromServer = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'anna', baseUrl: POCKET_ONNX_BASE } });
+	assert.equal(fromServer.tts.voice, 'alba');
+	const kept = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'marius', baseUrl: POCKET_ONNX_BASE } });
+	assert.equal(kept.tts.voice, 'marius');
 });
 
 test('choosing kokoro again restores the preset voice host', () => {

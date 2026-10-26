@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { POCKET_VOICE_IDS, voiceCatalog } from '../src/lib/voice-ids.ts';
+import { POCKET_DEVICE_VOICE_IDS, POCKET_VOICE_IDS, pocketDeviceVoice, voiceCatalog } from '../src/lib/voice-ids.ts';
 
-test('pocket and the on-device model list the same built-in voice ids', () => {
+test('the server and the on-device model list their own built-in voice ids', () => {
 	const pocket = voiceCatalog('pocket');
 	const device = voiceCatalog('pocket-device');
 	assert.deepEqual(
 		pocket.items.map((item) => item.id),
 		[...POCKET_VOICE_IDS]
 	);
-	assert.deepEqual(device.items, pocket.items);
-	assert.ok(pocket.note.includes('alba'));
+	assert.deepEqual(
+		device.items.map((item) => item.id),
+		[...POCKET_DEVICE_VOICE_IDS]
+	);
+	assert.ok(pocket.items.some((item) => item.id === 'anna'));
+	assert.equal(device.items.some((item) => item.id === 'anna'), false);
+	assert.ok(device.items.some((item) => item.id === 'alba'));
+	assert.equal(pocketDeviceVoice('anna'), 'alba');
+	assert.equal(pocketDeviceVoice('marius'), 'marius');
 });
 
 test('each vendor has a note, and ElevenLabs has no invented ids', () => {

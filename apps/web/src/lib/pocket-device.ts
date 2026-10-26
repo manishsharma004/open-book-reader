@@ -84,6 +84,10 @@ async function voiceFor(active: Engine, settings: TtsSettings, sample: Uint8Arra
 		return voiceRef;
 	}
 	const name = settings.voice || POCKET_VOICE;
+	const known = active.predefinedVoices;
+	if (known.length && !known.includes(name)) {
+		throw new Error(`Unknown built-in voice: ${name}. This on-device bundle includes ${known.join(', ')}.`);
+	}
 	const key = `voice:${name}`;
 	if (voiceRef && voiceKey === key) return voiceRef;
 	voiceRef = await active.loadVoice(name);
