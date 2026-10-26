@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chapterForPage, chaptersFromDocument, chaptersFromText, type ChapterDocument } from '../src/lib/chapters.ts';
+import { activeTrail, chapterForPage, chaptersFromDocument, chaptersFromText, type ChapterDocument } from '../src/lib/chapters.ts';
 import { paginateText } from '../src/lib/text-book.ts';
 
 test('numbered headings land on the page that contains them', () => {
@@ -133,6 +133,11 @@ test('an outline wrapper is opened and a real outline is not scanned as text', a
 			['Opening', 0],
 			['Later', 2]
 		]
+	);
+	assert.equal(chapters[1].children?.[0]?.title, 'Skipped child');
+	assert.deepEqual(
+		activeTrail(chapters, 2).map((chapter) => chapter.title),
+		['Later', 'Skipped child']
 	);
 });
 
