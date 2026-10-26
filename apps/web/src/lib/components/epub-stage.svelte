@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { chaptersFromToc, openEpub, pageFrame, sectionDocument, type ParsedEpub } from '#lib/epub.js';
+	import { joinReadingRuns, type ReadingRun } from '#lib/spoken-text.js';
 	import type { Chapter } from '#lib/chapters.js';
 
 	type Props = {
@@ -84,7 +85,6 @@
 		const flow = doc.getElementById('ob-flow');
 		if (!flow) return { texts: [''], anchors: new Map<string, number>() };
 		const total = Math.max(1, Math.round(flow.scrollWidth / Math.max(widthPx, 1)));
-		const texts: string[][] = Array.from({ length: total }, () => []);
 		const anchors = new Map<string, number>();
 		const origin = flow.getBoundingClientRect().left;
 		const columnAtBox = (left: number) => Math.min(total - 1, Math.max(0, Math.floor((left - origin) / widthPx)));
@@ -103,26 +103,42 @@
 			}
 			return null;
 		};
-		const walker = doc.createTreeWalker(flow, NodeFilter.SHOW_TEXT);
-		let node = walker.nextNode();
-		while (node) {
-			const value = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
-			if (value) {
+		const runs: ReadingRun[][] = Array.from({ length: total }, () => []);
+		const blocks = new Set(['ADDRESS', 'ARTICLE', 'BLOCKQUOTE', 'DIV', 'DD', 'DT', 'FIGCAPTION', 'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'P', 'PRE', 'SECTION', 'TR']);
+		const place = (column: number, run: ReadingRun) => {
+			if (column < 0) return;
+			runs[Math.min(total - 1, column)].push(run);
+		};
+		const walk = (node: Node, hint: number) => {
+			if (node.nodeType === Node.TEXT_NODE) {
+				const value = node.textContent ?? '';
+				if (!value) return;
 				const range = doc.createRange();
 				range.selectNodeContents(node);
-				const rect = range.getClientRects()[0];
-				if (rect && rect.width > 0) {
-					const column = Math.min(total - 1, Math.max(0, Math.floor((rect.left - origin) / widthPx)));
-					texts[column].push(value);
-				}
+				const rect = [...range.getClientRects()].find((box) => box.width > 0);
+				place(rect ? columnAtBox(rect.left) : hint, { text: value, block: false });
+				return;
 			}
-			node = walker.nextNode();
-		}
+			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			const element = node as HTMLElement;
+			if (element.classList.contains('x-ebookmaker-pageno') || element.tagName === 'SCRIPT' || element.tagName === 'STYLE') return;
+			if (element.tagName === 'BR') {
+				place(hint, { text: '\n', block: false });
+				return;
+			}
+			const box = element.getBoundingClientRect();
+			const column = box.width > 0 ? columnAtBox(box.left) : hint;
+			const block = blocks.has(element.tagName);
+			if (block) place(column, { text: '', block: true });
+			for (const child of element.childNodes) walk(child, column);
+			if (block) place(column, { text: '', block: true });
+		};
+		walk(flow, 0);
 		for (const element of flow.querySelectorAll('[id]')) {
 			const placed = columnAt(element);
 			anchors.set(element.id, placed ?? columnAtBox(element.getBoundingClientRect().left));
 		}
-		return { texts: texts.map((parts) => parts.join(' ').replace(/\s+/g, ' ').trim()), anchors };
+		return { texts: runs.map((column) => joinReadingRuns(column)), anchors };
 	}
 
 	$effect(() => {

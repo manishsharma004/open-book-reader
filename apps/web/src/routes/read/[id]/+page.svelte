@@ -4,7 +4,6 @@
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { Slider } from '#lib/components/ui/slider/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
 	import { getBlob, getBook, updateBook, type Book } from '#lib/db.js';
 	import { openPdf, type PageWord } from '#lib/pdf.js';
@@ -103,8 +102,80 @@
 	const spreadOn = $derived(spreadActive(facingWanted, stageWidth, stageHeight, book?.pageCount ?? 0));
 	const companionIndex = $derived(companionPage(pageIndex, book?.pageCount ?? 0, spreadOn));
 	const facingMode = $derived(spreadOn ? 'on' : facingWanted ? 'waiting' : 'off');
-	let outlineOpen = $state(true);
+	const CHAPTER_MIN = 180;
+	const PIPELINE_MIN = 220;
+	const SIDE_MAX = 480;
 	const field = 'border-input bg-background h-8 rounded-lg border px-2 text-sm';
+
+	function storedFlag(key: string, fallback: boolean) {
+		if (typeof sessionStorage === 'undefined') return fallback;
+		const value = sessionStorage.getItem(key);
+		if (value === '0') return false;
+		if (value === '1') return true;
+		return fallback;
+	}
+
+	function storedWidth(key: string, fallback: number, min: number) {
+		if (typeof sessionStorage === 'undefined') return fallback;
+		const value = Number(sessionStorage.getItem(key));
+		if (!Number.isFinite(value)) return fallback;
+		return Math.min(SIDE_MAX, Math.max(min, Math.round(value)));
+	}
+
+	let outlineOpen = $state(storedFlag('open-book-chapters-open', true));
+	let pipelineOpen = $state(storedFlag('open-book-pipeline-open', true));
+	let chapterWidth = $state(storedWidth('open-book-chapters-width', 288, CHAPTER_MIN));
+	let pipelineWidth = $state(storedWidth('open-book-pipeline-width', 320, PIPELINE_MIN));
+
+	function setOutline(next: boolean) {
+		outlineOpen = next;
+		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-chapters-open', next ? '1' : '0');
+	}
+
+	function setPipeline(next: boolean) {
+		pipelineOpen = next;
+		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-pipeline-open', next ? '1' : '0');
+	}
+
+	function setSideWidth(which: 'chapters' | 'pipeline', value: number) {
+		const min = which === 'chapters' ? CHAPTER_MIN : PIPELINE_MIN;
+		const width = Math.min(SIDE_MAX, Math.max(min, Math.round(value)));
+		if (which === 'chapters') chapterWidth = width;
+		else pipelineWidth = width;
+		if (typeof sessionStorage !== 'undefined') {
+			sessionStorage.setItem(which === 'chapters' ? 'open-book-chapters-width' : 'open-book-pipeline-width', String(width));
+		}
+	}
+
+	function startSideResize(which: 'chapters' | 'pipeline', event: PointerEvent) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		const handle = event.currentTarget as HTMLElement;
+		handle.setPointerCapture(event.pointerId);
+		const startX = event.clientX;
+		const start = which === 'chapters' ? chapterWidth : pipelineWidth;
+		const move = (next: PointerEvent) => {
+			const delta = next.clientX - startX;
+			setSideWidth(which, which === 'chapters' ? start + delta : start - delta);
+		};
+		const stop = () => {
+			handle.removeEventListener('pointermove', move);
+			handle.removeEventListener('pointerup', stop);
+			handle.removeEventListener('pointercancel', stop);
+		};
+		handle.addEventListener('pointermove', move);
+		handle.addEventListener('pointerup', stop);
+		handle.addEventListener('pointercancel', stop);
+	}
+
+	function nudgeSide(which: 'chapters' | 'pipeline', event: KeyboardEvent) {
+		const step = event.shiftKey ? 32 : 16;
+		const grow = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+		if (!grow) return;
+		event.preventDefault();
+		const sign = which === 'chapters' ? grow : -grow;
+		setSideWidth(which, (which === 'chapters' ? chapterWidth : pipelineWidth) + sign * step);
+	}
 
 	$effect(() => {
 		const display = String(shownPage + 1);
@@ -1012,10 +1083,13 @@
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href="/" variant="ghost" size="sm">Library</Button>
 		{#if chapters.length > 0}
-			<Button variant={outlineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={outlineOpen} onclick={() => (outlineOpen = !outlineOpen)}>
+			<Button variant={outlineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={outlineOpen} data-chapters-toggle onclick={() => setOutline(!outlineOpen)}>
 				Chapters
 			</Button>
 		{/if}
+		<Button variant={pipelineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={pipelineOpen} data-pipeline-toggle onclick={() => setPipeline(!pipelineOpen)}>
+			Pipeline
+		</Button>
 		<p class="min-w-0 flex-1 truncate text-sm font-medium">{book?.title ?? 'Opening…'}</p>
 		{#if chapterTrail.length}
 			<span class="text-muted-foreground hidden max-w-48 truncate text-xs sm:inline" data-chapter={chapterTrail[chapterTrail.length - 1]?.title ?? ''}>
@@ -1053,10 +1127,24 @@
 		<div class="flex min-h-0 flex-1 flex-col lg:flex-row">
 			{#if outlineOpen && chapters.length > 0}
 				<aside
-					class="border-border bg-card max-h-72 shrink-0 overflow-y-auto border-b lg:max-h-none lg:w-72 lg:border-r lg:border-b-0"
+					class="chapter-pane border-border bg-card relative max-h-72 shrink-0 overflow-hidden border-b lg:max-h-none lg:border-r lg:border-b-0"
+					style:--pane={`${chapterWidth}px`}
 					data-chapter-nav
 				>
-					<ChapterNav {chapters} pageIndex={shownPage} onjump={jump} />
+					<div class="max-h-72 overflow-y-auto lg:max-h-none lg:h-full">
+						<ChapterNav {chapters} pageIndex={shownPage} onjump={jump} />
+					</div>
+					<button
+						type="button"
+						class="absolute inset-y-0 right-0 z-10 hidden w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 lg:block"
+						aria-label="Resize chapters"
+						aria-valuemin={CHAPTER_MIN}
+						aria-valuemax={SIDE_MAX}
+						aria-valuenow={chapterWidth}
+						data-resize="chapters"
+						onpointerdown={(event) => startSideResize('chapters', event)}
+						onkeydown={(event) => nudgeSide('chapters', event)}
+					></button>
 				</aside>
 			{/if}
 			<div class="relative min-h-0 min-w-0 flex-1">
@@ -1190,9 +1278,26 @@
 					{/if}
 				</div>
 			</div>
-			<div class="border-border h-44 shrink-0 overflow-hidden border-t lg:h-auto lg:w-80 lg:border-t-0 lg:border-l">
-				<PipelinePanel />
-			</div>
+			{#if pipelineOpen}
+				<div
+					class="pipeline-pane border-border relative h-44 shrink-0 overflow-hidden border-t lg:h-auto lg:border-t-0 lg:border-l"
+					style:--pane={`${pipelineWidth}px`}
+					data-pipeline-pane
+				>
+					<button
+						type="button"
+						class="absolute inset-y-0 left-0 z-10 hidden w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 lg:block"
+						aria-label="Resize pipeline"
+						aria-valuemin={PIPELINE_MIN}
+						aria-valuemax={SIDE_MAX}
+						aria-valuenow={pipelineWidth}
+						data-resize="pipeline"
+						onpointerdown={(event) => startSideResize('pipeline', event)}
+						onkeydown={(event) => nudgeSide('pipeline', event)}
+					></button>
+					<PipelinePanel />
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -1252,9 +1357,19 @@
 					<span class="text-muted-foreground w-10 text-xs tabular-nums" data-slider-total>{book.pageCount}</span>
 				</div>
 			{/if}
-			<div class="flex min-w-36 flex-1 items-center gap-2">
-				<span class="text-muted-foreground text-xs tabular-nums">{rate.toFixed(1)}×</span>
-				<Slider type="single" bind:value={rate} min={0.5} max={2} step={0.1} />
+			<div class="flex items-center gap-2" data-speed>
+				<label class="text-muted-foreground text-xs tabular-nums" for="reading-speed">Speed {rate.toFixed(1)}×</label>
+				<input
+					id="reading-speed"
+					class="accent-primary w-28"
+					type="range"
+					min="0.5"
+					max="2"
+					step="0.1"
+					value={rate}
+					aria-label="Reading speed"
+					oninput={(event) => (rate = Number((event.currentTarget as HTMLInputElement).value))}
+				/>
 			</div>
 			<div class="flex min-w-36 items-center gap-2" data-pace>
 				<label class="text-muted-foreground text-xs tabular-nums" for="speech-pace">Pace {settings?.speechPace ?? 24}</label>
@@ -1319,3 +1434,17 @@
 	<audio bind:this={deckA} data-audio-deck="a" class="hidden" preload="auto"></audio>
 	<audio bind:this={deckB} data-audio-deck="b" class="hidden" preload="auto"></audio>
 </div>
+
+<style>
+	.chapter-pane,
+	.pipeline-pane {
+		width: 100%;
+	}
+
+	@media (min-width: 1024px) {
+		.chapter-pane,
+		.pipeline-pane {
+			width: var(--pane);
+		}
+	}
+</style>
