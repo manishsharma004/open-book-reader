@@ -28,6 +28,7 @@ flowchart LR
 
   first --> lib
   lib --> add --> proc --> home
+  lib --> open[Browse open books] --> proc
   lib --> home
   home --> read
   home --> chap
@@ -57,8 +58,19 @@ A **Try with a sample book** link adds a short bundled public-domain book so the
 - Drop zone and **Add book** button. Dropping a file that is already in the library opens that book.
 - Storage bar at the bottom: used and available bytes from `navigator.storage.estimate()`, persistence status, and **Manage storage**.
 - Menu per book: Export, Remove prepared audio, Reprocess, Delete.
-- Empty state: "Add a PDF you own. It stays in this browser." and the sample book link.
+- **Browse open books** sits with **Add book**. Empty state: "Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser." and the sample book link.
 - Banner on Safari when not installed to the Home Screen: "Safari may delete this library after 7 days without a visit. Add to Home Screen to keep it." With **How** and **Dismiss**.
+
+### 3.2.1 Browse open books
+
+One screen, and one route, for every provider. Adding a provider does not add a screen, a route, or a card layout. The screen talks only to the open-book routes. It does not know how a catalog is fetched.
+
+- The provider list comes from the app server. Each chip is the provider's name. A provider that cannot search shows its note, such as **New releases**, and the search box does not apply to it.
+- Search, language, and the next page are the same controls for every provider that can search. Language defaults to the browser language.
+- A result is the same card everywhere: cover, title, authors, language, license note, and one button per format. **Add PDF** and **Add text** download that file through the app server and hand the bytes to the same processing as a file from disk, including the duplicate-hash check and the language control. The reader does not pick the file again. **EPUB** is visible and disabled, with "EPUB is not paginated yet."
+- A book already in this browser, by the same hash, says **Open** instead of Add.
+- The screen says the search is sent to that provider through the app server and is not kept.
+- With no network: "Open books need the network. The books already in this browser are still here."
 
 ### 3.3 Add book
 

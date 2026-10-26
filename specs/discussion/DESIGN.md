@@ -31,6 +31,7 @@ The original request, and where it is answered:
 | Data, embeddings, and analysis stay in the browser | [Where work runs](#4-where-work-runs), [IndexedDB](#5-indexeddb-storage-and-task-state) |
 | Stateless backend for transcription, analysis, completion | [Stateless proxy](#43-stateless-proxy) |
 | Vendor settings, including a remote model URL, stored in the browser and sent on each call | `PROVIDERS.md` |
+| Browse books a source already gives away, and keep the chosen file in this browser | [Open books](#611-open-books) |
 
 ## 1. Product
 
@@ -57,7 +58,7 @@ The reader can move between levels at any time. Moving up re-queues only the mod
 
 ### 1.2 What is running
 
-Checked 26 October 2026. The library, settings, and reader are in the app. The rest of this document is the target: spans, embeddings, chapter records, the Ready gate, export, and the text view are not built. Do not treat a missing piece of that pipeline as a regression.
+Checked 26 October 2026. The library, settings, and reader are in the app. The rest of this document is the target: spans, embeddings, chapter records, the Ready gate, export, the text view, and the open-book browser are not built. Do not treat a missing piece of that pipeline as a regression.
 
 What the running reader does:
 
@@ -83,7 +84,7 @@ What the running reader does:
 ### Out of scope for this design
 
 - Choosing a final model vendor, hosting region, or price.
-- Accounts, sync between devices, billing, and storefronts.
+- Accounts, sync between devices, billing, and paid storefronts. A catalog of books the source already gives away is [Open books](#611-open-books), not a store.
 - A server-side library of the reader's books.
 - Editing the book's prose.
 - Native mobile apps.
@@ -290,9 +291,31 @@ Playback is session state, not a version state. A version stays Ready while it i
 
 The browser stores the `File` in `blobs`, records name, size, media type, and SHA-256, and creates the page tasks. Nothing calls the proxy. On a secure page the hash uses `crypto.subtle`. On a phone opened at `http://192.168.x.x`, where `crypto.subtle` is missing, the same SHA-256 runs in the page, and ids come from `crypto.getRandomValues`. That page can open the book. The built-in voice is absent there, so Play reports that instead of failing the route.
 
-First format: PDF, text-layer and scanned. EPUB reflows, so it needs a fixed pagination before highlights have stable pages; it is a later extractor behind the same interface.
+First format from disk: PDF, text-layer and scanned. A plain-text file from [Open books](#611-open-books) uses the same library record. EPUB reflows, so it needs a fixed pagination before highlights have stable pages; it is a later extractor behind the same interface.
 
 A password-protected PDF blocks with `needs-password`. PDF.js needs the password every time it opens the file, so the reader can keep it in the book record on this device or enter it each session.
+
+### 6.1.1 Open books
+
+Checked 26 October 2026. This is designed and not built.
+
+The reader can browse books that a source already gives away, then keep one file in IndexedDB. That file joins the library through the same upload path as a file from disk: hash, blob, pages, the reader that already exists. The server does not keep the file, the search, or a shelf. There is no account.
+
+Every source is a provider with the same three operations. The browser and the browse screen speak only those operations. Adding a source is a new provider module and a line in the provider list. It is not a new screen, a new route shape, or a new way into the library.
+
+| Operation | Returns |
+| --- | --- |
+| `list` | id, name, whether search works, languages, a short note |
+| `search(q, language, page)` | books, and the next page if there is one |
+| `file(id, mediaType)` | the bytes, the media type, and a filename |
+
+A book the browser is allowed to see has provider, id, title, authors, languages, year, `license` (`public-domain` or `open-license`), a short license note, and formats. Each format is a media type, a label, and `addable`. The browser is not given the source URL. A cover is `GET /v1/open-books/{provider}/{id}/cover` on this origin.
+
+`application/pdf` is addable and opens in the reader that exists. `text/plain` is addable because these catalogs usually publish text rather than PDF. The browser paginates that text into pages of about 1,800 characters, breaking on paragraphs, and speaks it with the same clips. The page is text, not a PDF canvas, and the highlight is a span on that text. `application/epub+zip` is listed and not addable until EPUB has the pagination in [Upload](#61-upload). The card says so.
+
+A provider returns a book only when that source marks it public domain or under a license that lets the reader keep a copy. Anything else is dropped inside the provider, including borrow-only copies. The browser still refuses a book whose license is neither of those two values.
+
+The registered providers, the hosts each one may contact, and the catalogs that were rejected are in `PROVIDERS.md`. A provider's hosts live only in that module. The proxy will fetch a file only from those hosts. It follows a redirect only when the next host is on that same list, and at most three times. Speech forwarding still does not follow redirects. A fetch is limited to 40 MB and 60 seconds. The query string is not logged.
 
 ### 6.2 Page analysis
 
@@ -720,6 +743,7 @@ These were open questions. They are decided.
 | 10 | Kokoro is the default speech engine. Hosted alternatives with timings are Google Cloud TTS and ElevenLabs. OpenAI speech is not the default | [Suggested stack](#12-suggested-stack) |
 | 11 | The recommended compose file runs Kokoro as its own service next to the app server. The app image does not contain the speech weights, and no text model is bundled | [Suggested stack](#12-suggested-stack) |
 | 12 | The running reader speaks short clips for the open page and the pages ahead, and play starts on the first clip. The span pipeline and the Ready gate stay the target and are not what the app does today | [What is running](#12-what-is-running), [Page buffer](#78-page-buffer) |
+| 13 | Open books are providers with one interface. A new source is a module. PDF and plain text can be kept; EPUB is listed and not addable yet. Only public-domain and open-license files are returned | [Open books](#611-open-books), `PROVIDERS.md` |
 
 ## 15. Follow-up discussions
 
