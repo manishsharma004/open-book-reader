@@ -113,14 +113,6 @@
 	const SIDE_MAX = 480;
 	const field = 'border-input bg-background h-8 rounded-lg border px-2 text-sm';
 
-	function storedFlag(key: string, fallback: boolean) {
-		if (typeof sessionStorage === 'undefined') return fallback;
-		const value = sessionStorage.getItem(key);
-		if (value === '0') return false;
-		if (value === '1') return true;
-		return fallback;
-	}
-
 	function storedWidth(key: string, fallback: number, min: number) {
 		if (typeof sessionStorage === 'undefined') return fallback;
 		const value = Number(sessionStorage.getItem(key));
@@ -128,20 +120,41 @@
 		return Math.min(SIDE_MAX, Math.max(min, Math.round(value)));
 	}
 
-	let outlineOpen = $state(storedFlag('open-book-chapters-open', true));
-	let pipelineOpen = $state(storedFlag('open-book-pipeline-open', true));
+	function initialSideOpen(key: string) {
+		if (typeof sessionStorage !== 'undefined') {
+			const value = sessionStorage.getItem(key);
+			if (value === '0') return false;
+			if (value === '1') return true;
+		}
+		if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) return false;
+		return true;
+	}
+
+	let narrow = $state(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
+	let outlineOpen = $state(initialSideOpen('open-book-chapters-open'));
+	let pipelineOpen = $state(initialSideOpen('open-book-pipeline-open'));
 	let chapterWidth = $state(storedWidth('open-book-chapters-width', 288, CHAPTER_MIN));
 	let pipelineWidth = $state(storedWidth('open-book-pipeline-width', 320, PIPELINE_MIN));
 
 	function setOutline(next: boolean) {
 		outlineOpen = next;
+		if (next && narrow) pipelineOpen = false;
 		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-chapters-open', next ? '1' : '0');
 	}
 
 	function setPipeline(next: boolean) {
 		pipelineOpen = next;
+		if (next && narrow) outlineOpen = false;
 		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-pipeline-open', next ? '1' : '0');
 	}
+
+	$effect(() => {
+		const query = window.matchMedia('(max-width: 1023px)');
+		const apply = () => (narrow = query.matches);
+		apply();
+		query.addEventListener('change', apply);
+		return () => query.removeEventListener('change', apply);
+	});
 
 	function setSideWidth(which: 'chapters' | 'pipeline', value: number) {
 		const min = which === 'chapters' ? CHAPTER_MIN : PIPELINE_MIN;
@@ -210,6 +223,15 @@
 		}
 		return flags;
 	});
+
+	const spokenSentence = $derived.by(() => {
+		const clip = prepared?.clips.find((item) => activeWord >= item.wordStart && activeWord < item.wordEnd);
+		return clip ?? null;
+	});
+
+	function wordRuled(index: number) {
+		return index === activeWord || (spokenSentence != null && index >= spokenSentence.wordStart && index < spokenSentence.wordEnd);
+	}
 
 	const bufferLabel = $derived.by(() => {
 		bufferTick;
@@ -636,6 +658,7 @@
 		if (!book) return;
 		scrub = null;
 		pageIndex = Math.min(book.pageCount - 1, Math.max(0, next));
+		if (narrow) setOutline(false);
 	}
 
 	function goToPage(event?: Event) {
@@ -1106,6 +1129,9 @@
 <svelte:window onkeydown={onReaderKey} />
 
 <div class="flex h-dvh min-h-0 flex-col overflow-hidden">
+	{#if narrow && (outlineOpen || pipelineOpen)}
+		<button type="button" class="fixed inset-0 z-30 bg-black/40" aria-label="Close the side panel" data-drawer-scrim onclick={() => { setOutline(false); setPipeline(false); }}></button>
+	{/if}
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href="/" variant="ghost" size="sm">Library</Button>
 		{#if chapters.length > 0}
@@ -1157,7 +1183,7 @@
 					style:--pane={`${chapterWidth}px`}
 					data-chapter-nav
 				>
-					<div class="max-h-72 overflow-y-auto lg:max-h-none lg:h-full">
+					<div class="max-h-72 overflow-y-auto max-lg:max-h-none max-lg:h-full lg:max-h-none lg:h-full">
 						<ChapterNav {chapters} pageIndex={shownPage} onjump={jump} />
 					</div>
 					<button
@@ -1187,7 +1213,20 @@
 					onclickcapture={onPageClickCapture}
 				>
 					{#if book?.kind === 'epub' && epubData}
-						<EpubStage data={epubData} page={pageIndex} spread={spreadOn} onlayout={onEpubLayout} onflick={playTurn} onfail={onEpubFail} />
+						<EpubStage
+							data={epubData}
+							page={pageIndex}
+							spread={spreadOn}
+							words={words}
+							activeWord={activeWord}
+							sentenceStart={spokenSentence?.wordStart ?? -1}
+							sentenceEnd={spokenSentence?.wordEnd ?? -1}
+							ready={readyWords}
+							onword={(index) => playFrom(index, { seek: true })}
+							onlayout={onEpubLayout}
+							onflick={playTurn}
+							onfail={onEpubFail}
+						/>
 					{:else}
 					<div class="flex h-full w-full items-center justify-center" data-facing={facingMode}>
 						<div class="relative">
@@ -1220,7 +1259,7 @@
 												readyWords[index] === true,
 												word.role
 											)}
-											style:box-shadow={index === activeWord || activeWord === -2
+											style:box-shadow={wordRuled(index)
 												? 'inset 0 -2px 0 var(--highlight-line)'
 												: word.role === 'heading'
 													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
@@ -1245,7 +1284,7 @@
 												index === activeWord || activeWord === -2,
 												readyWords[index] === true,
 												word.role
-											)};box-shadow:{index === activeWord || activeWord === -2
+											)};box-shadow:{wordRuled(index)
 												? 'inset 0 -2px 0 var(--highlight-line)'
 												: word.role === 'heading'
 													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
@@ -1465,6 +1504,30 @@
 	.chapter-pane,
 	.pipeline-pane {
 		width: 100%;
+	}
+
+	@media (max-width: 1023px) {
+		.chapter-pane,
+		.pipeline-pane {
+			position: fixed;
+			z-index: 40;
+			top: 0;
+			bottom: 0;
+			width: min(22rem, 88vw);
+			max-height: none;
+			height: auto;
+			background: var(--card);
+			box-shadow: 0 0 24px rgb(0 0 0 / 18%);
+		}
+
+		.chapter-pane {
+			left: 0;
+		}
+
+		.pipeline-pane {
+			right: 0;
+			height: 100%;
+		}
 	}
 
 	@media (min-width: 1024px) {

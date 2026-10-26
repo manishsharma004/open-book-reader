@@ -102,7 +102,7 @@ What the running reader does:
 4. If a step needs the reader, the task is **blocked** with a reason and an action: enter the PDF password, connect a text model, or continue without one.
 5. Closing the tab pauses processing. Opening the app again continues from the task records.
 6. The book becomes **Ready**. The reader sees the chapter list, the metadata with found/inferred badges, any uncertain chapter breaks flagged for review, and Play. If a speech profile exists, the first minute at the resume position is already being prepared.
-7. Audio plays from stored blobs. The current word is highlighted, and the current sentence is underlined. When the spoken word is on the next page, the page turns.
+7. Audio plays from stored blobs. The current word is highlighted, and the current sentence is underlined, on a PDF, a text page, and the EPUB page itself. When the spoken word is on the next page, the page turns.
 8. Pause, seek, speed, sentence and chapter jumps, and clicks on a word all move the same audio clock. The highlight reads that clock.
 9. Leaving and coming back restores the position from IndexedDB.
 
