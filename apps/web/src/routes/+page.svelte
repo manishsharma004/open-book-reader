@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import UploadIcon from '@lucide/svelte/icons/upload';
 	import AppHeader from '#lib/components/app-header.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -21,6 +22,9 @@
 	let password = $state('');
 	let pendingFile = $state<File | null>(null);
 	let needsPassword = $state(false);
+	let dragging = $state(false);
+	let picked = $state<{ name: string; size: number } | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 
 	async function refresh() {
 		books = await listBooks();
@@ -74,14 +78,49 @@
 		}
 	}
 
-	async function onFile(event: Event) {
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
-		input.value = '';
-		if (!file) return;
+	function isPdf(file: File) {
+		return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+	}
+
+	function takeFile(file: File | null | undefined) {
+		if (!file || busy) return;
+		if (fileInput) fileInput.value = '';
+		if (!isPdf(file)) {
+			picked = null;
+			pendingFile = null;
+			needsPassword = false;
+			error = 'Choose a PDF file.';
+			return;
+		}
+		picked = { name: file.name, size: file.size };
 		needsPassword = false;
 		password = '';
-		await storeFile(file);
+		error = '';
+		void storeFile(file);
+	}
+
+	function onFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		takeFile(input.files?.[0]);
+	}
+
+	function onDragOver(event: DragEvent) {
+		event.preventDefault();
+		if (busy) return;
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+		dragging = true;
+	}
+
+	function onDragLeave(event: DragEvent) {
+		const next = event.relatedTarget;
+		if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) return;
+		dragging = false;
+	}
+
+	function onDrop(event: DragEvent) {
+		event.preventDefault();
+		dragging = false;
+		takeFile(event.dataTransfer?.files?.[0]);
 	}
 
 	async function remove(book: Book) {
@@ -152,15 +191,58 @@
 	{/if}
 </main>
 
-<Dialog.Root bind:open>
+<Dialog.Root
+	bind:open
+	onOpenChange={(next) => {
+		if (next) return;
+		dragging = false;
+		error = '';
+		password = '';
+		needsPassword = false;
+		pendingFile = null;
+		picked = null;
+	}}
+>
 	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
+		<Dialog.Header class="pr-8">
 			<Dialog.Title>Add a book</Dialog.Title>
 			<Dialog.Description>PDF files stay in this browser. Pages with little or no text layer are read with OCR.</Dialog.Description>
 		</Dialog.Header>
 		<div class="grid gap-3">
-			<Label for="book-file">PDF</Label>
-			<Input id="book-file" type="file" accept="application/pdf,.pdf" onchange={onFile} disabled={busy} />
+			<label
+				class="border-border bg-muted/30 hover:bg-muted/60 focus-within:border-ring focus-within:ring-ring/40 flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-8 text-center transition-colors focus-within:ring-3 {dragging
+					? 'border-primary bg-accent'
+					: ''} {busy ? 'pointer-events-none opacity-70' : ''}"
+				ondragover={onDragOver}
+				ondragleave={onDragLeave}
+				ondrop={onDrop}
+				data-book-drop
+				data-dragging={dragging ? 'true' : 'false'}
+				aria-busy={busy}
+			>
+				<span class="bg-background text-primary flex size-11 items-center justify-center rounded-full border shadow-sm">
+					<UploadIcon class="size-6" />
+				</span>
+				<span class="grid gap-1">
+					<span class="text-sm font-medium">{busy ? 'Adding the PDF…' : dragging ? 'Drop the PDF' : 'Drop a PDF here'}</span>
+					<span class="text-muted-foreground text-xs">
+						{#if picked}
+							{picked.name} · {formatBytes(picked.size)}
+						{:else}
+							or click to choose a file
+						{/if}
+					</span>
+				</span>
+				<input
+					bind:this={fileInput}
+					id="book-file"
+					class="sr-only"
+					type="file"
+					accept="application/pdf,.pdf"
+					onchange={onFile}
+					disabled={busy}
+				/>
+			</label>
 			{#if needsPassword}
 				<Label for="pdf-password">Password</Label>
 				<Input id="pdf-password" type="password" bind:value={password} />
