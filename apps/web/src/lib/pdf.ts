@@ -1,5 +1,5 @@
 import { assignWordRoles } from '#lib/page-roles.js';
-import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
+import { expandLigatures, spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -33,21 +33,41 @@ export async function pageWords(page: PDFPageProxy): Promise<PageText> {
 	const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
 	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h'>> = [];
 
+	type Run = { str: string; x: number; y: number; w: number; h: number };
+	let run: Run | null = null;
+	const runs: Run[] = [];
 	for (const item of content.items) {
 		if (!('str' in item) || !item.str) continue;
+		const str = expandLigatures(item.str);
 		const width = item.width;
 		const height = Math.hypot(item.transform[2], item.transform[3]) || item.height || 12;
 		const x0 = item.transform[4];
 		const y0 = item.transform[5];
+		if (run) {
+			const gap = x0 - (run.x + run.w);
+			const sameLine = Math.abs(y0 - run.y) < Math.max(height, run.h) * 0.6;
+			const close = gap >= -1 && gap < Math.max(run.h, height, 8) * 0.35;
+			if (sameLine && close && !run.str.endsWith('-')) {
+				run.str += str;
+				run.w = Math.max(run.w, x0 + width - run.x);
+				run.h = Math.max(run.h, height);
+				continue;
+			}
+		}
+		if (run) runs.push(run);
+		run = { str, x: x0, y: y0, w: width, h: height };
+	}
+	if (run) runs.push(run);
+	for (const item of runs) {
 		const length = item.str.length || 1;
 		for (const part of segmenter.segment(item.str)) {
 			pieces.push({
 				segment: part.segment,
 				isWordLike: part.isWordLike,
-				x: x0 + width * (part.index / length),
-				y: y0,
-				w: width * (Math.max(part.segment.trim().length, 1) / length),
-				h: height
+				x: item.x + item.w * (part.index / length),
+				y: item.y,
+				w: item.w * (Math.max(part.segment.trim().length, 1) / length),
+				h: item.h
 			});
 		}
 	}

@@ -1,6 +1,6 @@
 import { assignWordRoles } from '#lib/page-roles.js';
 import type { PageText, PageWord } from '#lib/pdf.js';
-import { spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
+import { expandLigatures, spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 
 export const PAGE_CHARS = 1800;
 
@@ -53,7 +53,7 @@ export function wordsForPage(pageText: string): PageText {
 	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h'>> = [];
 	let y = 720;
 	for (const paragraph of pageText.split(/\n{2,}/)) {
-		const parts = [...segmenter.segment(paragraph)];
+		const parts = [...segmenter.segment(expandLigatures(paragraph))];
 		const wordCount = parts.filter((part) => part.isWordLike).length;
 		const heading = wordCount > 0 && wordCount <= 12 && paragraph.trim().length < 80 && !/[.!?…]$/u.test(paragraph.trim());
 		const height = heading ? 22 : 16;
