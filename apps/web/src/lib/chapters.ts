@@ -7,6 +7,7 @@
 export type Chapter = {
 	title: string;
 	pageIndex: number;
+	children?: Chapter[];
 };
 
 const LABEL =
@@ -166,6 +167,22 @@ export function chapterForPage(chapters: Chapter[], pageIndex: number): number {
 	return found;
 }
 
+/** The outline path that covers this page. The last entry is the deepest match. */
+export function activeTrail(chapters: Chapter[], pageIndex: number): Chapter[] {
+	let best: Chapter[] = [];
+	function walk(nodes: Chapter[], trail: Chapter[]) {
+		for (const node of nodes) {
+			if (node.pageIndex > pageIndex) continue;
+			const next = [...trail, node];
+			const bestPage = best[best.length - 1]?.pageIndex ?? -1;
+			if (node.pageIndex >= bestPage) best = next;
+			if (node.children?.length) walk(node.children, next);
+		}
+	}
+	walk(chapters, []);
+	return best;
+}
+
 async function pageOf(document: ChapterDocument, dest: OutlineNode['dest']): Promise<number | null> {
 	try {
 		let explicit: unknown = dest;
@@ -179,30 +196,30 @@ async function pageOf(document: ChapterDocument, dest: OutlineNode['dest']): Pro
 	}
 }
 
-async function outlineChapters(nodes: OutlineNode[], document: ChapterDocument, depth: number): Promise<Chapter[]> {
-	const pending: Array<{ title: string; pageIndex: number | null; items: OutlineNode[] }> = [];
-	let withPage = 0;
-	for (const node of nodes) {
-		const title = tidy(node.title ?? '');
-		const pageIndex = await pageOf(document, node.dest);
-		if (pageIndex != null) withPage += 1;
-		pending.push({ title, pageIndex, items: node.items ?? [] });
-	}
-	const descend = withPage < 2 && depth < 3 && pending.some((item) => item.items.length > 0);
-	if (descend) {
-		const nested: Chapter[] = [];
-		for (const item of pending) {
-			if (item.items.length > 0) nested.push(...(await outlineChapters(item.items, document, depth + 1)));
-			else if (item.pageIndex != null && item.title) nested.push({ title: item.title, pageIndex: item.pageIndex });
-		}
-		return nested;
-	}
+async function outlineTree(nodes: OutlineNode[], document: ChapterDocument): Promise<Chapter[]> {
 	const chapters: Chapter[] = [];
-	for (const item of pending) {
-		if (item.pageIndex != null && item.title) chapters.push({ title: item.title, pageIndex: item.pageIndex });
-		else if (item.items.length > 0 && depth < 4) chapters.push(...(await outlineChapters(item.items, document, depth + 1)));
+	for (const node of nodes) {
+		const title = tidy(node.title ?? '').slice(0, 120);
+		const pageIndex = await pageOf(document, node.dest);
+		const children = node.items?.length ? await outlineTree(node.items, document) : [];
+		if (pageIndex == null) {
+			chapters.push(...children);
+			continue;
+		}
+		if (!title) continue;
+		const chapter: Chapter = { title, pageIndex };
+		if (children.length) chapter.children = children;
+		chapters.push(chapter);
 	}
 	return chapters;
+}
+
+/** The PDF outline as a tree. Null when the file has no outline entries that name a page. */
+export async function chaptersFromOutline(document: ChapterDocument): Promise<Chapter[] | null> {
+	const outline = await document.getOutline().catch(() => null);
+	if (!outline?.length) return null;
+	const tree = await outlineTree(outline, document);
+	return tree.length ? tree : null;
 }
 
 function linesFromItems(items: unknown[]): string {
@@ -236,13 +253,10 @@ function linesFromItems(items: unknown[]): string {
 		.join('\n');
 }
 
-/** Outline entries that name a page. Otherwise the same heading scan as plain text. */
+/** Outline tree when the PDF has one. Otherwise the same heading scan as plain text. */
 export async function chaptersFromDocument(document: ChapterDocument): Promise<Chapter[]> {
-	const outline = await document.getOutline().catch(() => null);
-	if (outline && outline.length > 0) {
-		const fromOutline = settleChapters(await outlineChapters(outline, document, 0), document.numPages);
-		if (fromOutline.length >= 2) return fromOutline;
-	}
+	const fromOutline = await chaptersFromOutline(document);
+	if (fromOutline) return fromOutline;
 	const pages: string[] = [];
 	for (let number = 1; number <= document.numPages; number += 1) {
 		const page = await document.getPage(number);
