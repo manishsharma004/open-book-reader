@@ -282,16 +282,23 @@
 		const bookId = id;
 		let cancelled = false;
 		halt();
+		buffering = true;
 		(async () => {
 			const found = await getBook(bookId);
 			if (cancelled) return;
 			if (!found) {
+				buffering = false;
 				error = 'That book is not in this browser.';
 				return;
 			}
 			book = found;
 			const blob = await getBlob(found.blobId);
-			if (!blob || cancelled) return;
+			if (cancelled) return;
+			if (!blob) {
+				buffering = false;
+				error = 'That book is not in this browser.';
+				return;
+			}
 			void pdf?.cleanup();
 			pdf = null;
 			if (found.kind === 'text') {
@@ -312,6 +319,7 @@
 			pageIndex = 0;
 			pdfToken += 1;
 		})().catch((caught) => {
+			buffering = false;
 			error = caught instanceof Error ? caught.message : 'Could not open the book.';
 		});
 		return () => {
