@@ -244,13 +244,95 @@ export function pageFrame(pageWidth: number, pageHeight: number, spread = false)
 	};
 }
 
+const DROPPED = new Set([
+	'script',
+	'iframe',
+	'object',
+	'embed',
+	'frame',
+	'frameset',
+	'applet',
+	'base',
+	'meta',
+	'form',
+	'link',
+	'noscript',
+	'template',
+	'foreignobject',
+	'annotation-xml'
+]);
+
+function stripScriptTags(html: string): string {
+	return html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<script\b[^>]*>/gi, '');
+}
+
+/** A scheme other than an inlined picture, font, or recording can run or load a script. */
+function unsafeUrl(value: string): boolean {
+	const text = value.replace(/[\u0000-\u001F\s]+/g, '');
+	if (!text || text.startsWith('#')) return false;
+	if (text.startsWith('//')) return true;
+	if (/^data:(?:image|font|audio|video)\//i.test(text)) return false;
+	if (/^data:application\/(?:font|x-font|vnd\.ms-fontobject)/i.test(text)) return false;
+	return /^[a-z][a-z0-9+.-]*:/i.test(text);
+}
+
+function neutralizeCss(css: string): string {
+	return css
+		.replace(/<\/style/gi, '<\\/style')
+		.replace(/expression\s*\(/gi, 'blocked(')
+		.replace(/(-moz-binding|behavior)\s*:/gi, 'blocked:')
+		.replace(/javascript\s*:/gi, 'blocked:');
+}
+
+/** Drop scripts and active markup. The book keeps its text, pictures, and styles. */
+export function sanitizeBookHtml(html: string): string {
+	const source = stripScriptTags(html);
+	const Parser = globalThis.DOMParser;
+	if (typeof Parser === 'undefined') return source;
+	const doc = new Parser().parseFromString(source, 'text/html');
+	for (const node of [...doc.querySelectorAll('*')]) {
+		if (DROPPED.has(node.localName.toLowerCase())) {
+			node.remove();
+			continue;
+		}
+		for (const attr of [...node.attributes]) {
+			const name = attr.name.toLowerCase();
+			if (name.startsWith('on') || name === 'srcdoc') {
+				node.removeAttribute(attr.name);
+				continue;
+			}
+			const url =
+				name.includes('href') ||
+				name === 'src' ||
+				name === 'poster' ||
+				name === 'action' ||
+				name === 'formaction' ||
+				name === 'data' ||
+				name === 'background' ||
+				name === 'cite' ||
+				name === 'longdesc';
+			if (url && unsafeUrl(attr.value)) {
+				node.removeAttribute(attr.name);
+				continue;
+			}
+			if (name === 'style') node.setAttribute(attr.name, neutralizeCss(attr.value));
+		}
+		if (node.localName.toLowerCase() === 'style') node.textContent = neutralizeCss(node.textContent ?? '');
+	}
+	const csp = doc.createElement('meta');
+	csp.setAttribute('http-equiv', 'Content-Security-Policy');
+	csp.setAttribute('content', "script-src 'none'; object-src 'none'; base-uri 'none'");
+	doc.head.prepend(csp);
+	return doc.documentElement.outerHTML;
+}
+
 /** The section as one HTML document, with the book's CSS and pictures inlined. */
 export function sectionDocument(book: ParsedEpub, href: string, columnWidth: number, columnHeight: number, spread = false): string {
 	let html = decode(book.files.get(href));
 	if (!html) {
 		html = '<html><body><p>This section is missing from the book.</p></body></html>';
 	}
-	html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+	html = stripScriptTags(html);
 	html = html.replace(/<link\b[^>]*>/gi, (tag) => {
 		const rel = attr(tag, 'rel');
 		const type = attr(tag, 'type');
@@ -289,7 +371,7 @@ export function sectionDocument(book: ParsedEpub, href: string, columnWidth: num
 	} else {
 		html = `<body><div id="ob-flow">${html}</div></body>`;
 	}
-	return html;
+	return sanitizeBookHtml(html);
 }
 
 export function chaptersFromToc(toc: EpubToc[], spine: EpubSection[], starts: Map<string, number>, columns: Map<string, Map<string, number>>): Chapter[] {

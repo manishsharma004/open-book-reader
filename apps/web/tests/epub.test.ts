@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { strToU8, zipSync } from 'fflate';
+import { DOMParser } from 'linkedom';
 import { chaptersFromToc, openEpub, pageFrame, sectionDocument, spineIndex } from '../src/lib/epub.ts';
+
+globalThis.DOMParser = DOMParser as unknown as typeof globalThis.DOMParser;
 
 const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (char) => char.charCodeAt(0));
 
@@ -70,4 +73,34 @@ test('a section is the book HTML with its stylesheet and pictures, not the pictu
 	const chapters = chaptersFromToc(book.toc, book.spine, starts, columns);
 	assert.equal(chapters[0].pageIndex, 1);
 	assert.equal(chapters[0].children?.[0].pageIndex, 2);
+});
+
+test('a section cannot carry a script into the page', () => {
+	const text = (value: string) => strToU8(value);
+	const bytes = zipSync({
+		'mimetype': text('application/epub+zip'),
+		'META-INF/container.xml': text(`<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`),
+		'OEBPS/content.opf': text(`<?xml version="1.0"?><package xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata><dc:title>Injected</dc:title></metadata><manifest><item id="c1" href="bad.xhtml" media-type="application/xhtml+xml"/><item id="pic" href="mark.png" media-type="image/png"/></manifest><spine><itemref idref="c1"/></spine></package>`),
+		'OEBPS/mark.png': png,
+		'OEBPS/bad.xhtml': text(`<html><head><script>alert(1)</script><script src="https://evil.example/a.js">
+			</script></head><body onload="alert(1)">
+			<img src="mark.png" onerror="alert(1)" alt="The plate">
+			<a href="javascript:alert(1)">The title stays</a>
+			<iframe src="https://evil.example/frame"></iframe>
+			<svg><script>alert(2)</script><rect onload="alert(3)"/></svg>
+			<style>body { background: url("javascript:alert(1)"); }</style>
+			<p>The title stays</p>
+			</body></html>`)
+	});
+	const book = openEpub(bytes);
+	const html = sectionDocument(book, book.spine[0].href, 640, 800);
+	assert.equal(/<script/i.test(html), false);
+	assert.equal(/\bon\w+\s*=/i.test(html), false);
+	assert.equal(/javascript:/i.test(html), false);
+	assert.equal(/<iframe/i.test(html), false);
+	assert.equal(html.includes('https://evil.example'), false);
+	assert.match(html, /script-src 'none'/);
+	assert.match(html, /The title stays/);
+	assert.match(html, /src="data:image\/png;base64,/);
+	assert.match(html, /The plate/);
 });

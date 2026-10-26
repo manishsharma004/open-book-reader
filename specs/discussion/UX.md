@@ -54,7 +54,7 @@ A **Try with a sample book** link adds a short bundled public-domain book so the
 
 ### 3.2 Library
 
-- Grid of books: cover (first page render), title, author when known, state badge (**Processing 64%**, **Needs you**, **Ready**, **Failed**), listening progress bar, and prepared-audio size.
+- Grid of books: the whole cover (first page render), title, author when known, state badge (**Processing 64%**, **Needs you**, **Ready**, **Failed**), listening progress bar, and prepared-audio size. A cover keeps its own shape inside the card, so a cover narrower or taller than the card is still shown in full.
 - Drop zone and **Add book** button. Dropping a file that is already in the library opens that book.
 - Storage bar at the bottom: used and available bytes from `navigator.storage.estimate()`, persistence status, and **Manage storage**.
 - Menu per book: Export, Remove prepared audio, Reprocess, Delete.
@@ -67,7 +67,7 @@ One screen, and one route, for every provider. Adding a provider does not add a 
 
 - The provider list comes from the app server. Each chip is the provider's name. A provider that cannot search shows its note, such as **New releases**, and the search box does not apply to it.
 - Search, language, and the next page are the same controls for every provider that can search. Language defaults to the browser language.
-- A result is the same card everywhere: cover, title, authors, language, license note, and one button per format. **Add PDF**, **Add text**, and **Add epub** download that file through the app server and hand the bytes to the same processing as a file from disk, including the duplicate-hash check. The reader does not pick the file again. **Add epub** is offered for Project Gutenberg. On other catalogs the EPUB button stays disabled until that catalog's file can be fetched.
+- A result is the same card everywhere: the whole cover in its own shape, title, authors, language, license note, and one button per format. A cover that is not as wide as the card stays fully visible instead of being cropped to the card. **Add PDF**, **Add text**, and **Add epub** download that file through the app server and hand the bytes to the same processing as a file from disk, including the duplicate-hash check. The reader does not pick the file again. **Add epub** is offered for Project Gutenberg. On other catalogs the EPUB button stays disabled until that catalog's file can be fetched.
 - A book already in this browser, by the same hash, says **Open** instead of Add.
 - The screen says the search is sent to that provider through the app server and is not kept.
 - A loader replaces the grid while the catalog responds. The next page says **Loading…**. Saving a file shows a loader until the book opens. An empty result says "No books matched that search." Opening a book shows the page loader at once. Adding a PDF from disk shows a loader in the dialog while the file is read.

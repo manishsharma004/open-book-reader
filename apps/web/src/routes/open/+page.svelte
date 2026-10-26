@@ -184,11 +184,11 @@
 			{#each books as book (`${book.provider}:${book.id}`)}
 				<li>
 					<Card.Root>
-						<div class="bg-muted h-40 overflow-hidden">
+						<div class="bg-muted flex items-center justify-center">
 							<img
 								src={coverPath(book.provider, book.id)}
 								alt=""
-								class="h-full w-full object-cover object-top"
+								class="max-h-80 w-auto max-w-full object-contain"
 								onerror={(event) => ((event.currentTarget as HTMLImageElement).style.display = 'none')}
 							/>
 						</div>
