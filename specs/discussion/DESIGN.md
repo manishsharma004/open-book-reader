@@ -72,7 +72,7 @@ What the running reader does:
 - Pace is in the player and in Settings. **Remove sample**, in both places, deletes the saved reference. Later speech uses the voice id.
 - The app server on port 7507 serves `apps/web/build` and `/v1`. A web-only change is live after `npm run build` in `apps/web`. Pocket is a separate process on port 7508. Restart a process only when its own code changed.
 - **Browse open books** lists the twelve catalogs in [Open books](#611-open-books). Search and download go through the app server. A loader stays up while a catalog responds and while a chosen file is saved in this browser. PDF and plain text can be added. EPUB is listed and is not added. Opening a book in the reader shows the page loader immediately.
-- Each book keeps `chapters`: a title and a page index. A PDF uses its outline when at least two entries name a page. Otherwise the text layer, or a plain-text book, is scanned for a chapter, part, or matter heading. A contents page of dot leaders is skipped. The same title repeated as a running header stays one chapter. The chapter menu in the reader jumps to that page. A book saved before this list existed gets it the next time it is opened.
+- Each book keeps `chapters`: a title, a page index, and nested children when the PDF outline has them. The reader shows that tree beside the page. A click jumps to the page, and the branch that contains the open page is expanded. A contents page of dot leaders is skipped when the outline is missing and headings are read from the text. Opening a PDF replaces a previously flat list with the outline tree.
 
 ### In scope for this design
 
