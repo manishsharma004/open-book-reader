@@ -185,13 +185,13 @@
 			{#each books as book (book.id)}
 				<li>
 					<Card.Root class="overflow-hidden">
-						<a href="/read/{book.id}" class="bg-muted flex min-h-40 items-center justify-center">
+						<a href="/read/{book.id}" class="bg-muted flex h-64 w-full shrink-0 items-center justify-center">
 							{#if covers[book.id]}
-								<img src={covers[book.id]} alt="" class="max-h-80 w-auto max-w-full object-contain" />
+								<img src={covers[book.id]} alt="" class="max-h-full max-w-full object-contain" />
 							{/if}
 						</a>
 						<Card.Header>
-							<Card.Title class="line-clamp-2 text-base">{book.title}</Card.Title>
+							<Card.Title class="line-clamp-2 min-h-11 text-base">{book.title}</Card.Title>
 							<Card.Description>
 								{book.pageCount} pages{book.chapters && book.chapters.length > 1 ? ` · ${book.chapters.length} chapters` : ''}
 							</Card.Description>

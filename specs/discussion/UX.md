@@ -54,7 +54,7 @@ A **Try with a sample book** link adds a short bundled public-domain book so the
 
 ### 3.2 Library
 
-- Grid of books: the whole cover (first page render), title, author when known, state badge (**Processing 64%**, **Needs you**, **Ready**, **Failed**), listening progress bar, and prepared-audio size. A cover keeps its own shape inside the card, so a cover narrower or taller than the card is still shown in full.
+- Grid of books: the whole cover (first page render), title, author when known, state badge (**Processing 64%**, **Needs you**, **Ready**, **Failed**), listening progress bar, and prepared-audio size. Every library card is the same height. The whole cover keeps its own shape inside that shared frame.
 - Drop zone and **Add book** button. Dropping a file that is already in the library opens that book.
 - Storage bar at the bottom: used and available bytes from `navigator.storage.estimate()`, persistence status, and **Manage storage**.
 - Menu per book: Export, Remove prepared audio, Reprocess, Delete.
