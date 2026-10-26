@@ -124,10 +124,11 @@ export function speakPocketDevice(
 		if (signal?.aborted) throw new DOMException('Skipped', 'AbortError');
 		const blob = chunksToWavBlob(chunks, active.sampleRate);
 		const device = active.device || 'wasm';
+		const reference = sample ? 'The saved sample was the reference. ' : '';
 		return {
 			blob,
 			words: null,
-			delivery: `On-device Pocket TTS via ${device}. The text stayed in this browser. This model has no emotion channel.`,
+			delivery: `On-device Pocket TTS via ${device}. ${reference}The text stayed in this browser. This model has no emotion channel.`,
 			mime: 'audio/wav'
 		};
 	});
