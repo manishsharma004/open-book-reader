@@ -185,9 +185,9 @@
 			{#each books as book (book.id)}
 				<li>
 					<Card.Root class="overflow-hidden">
-						<a href="/read/{book.id}" class="bg-muted block h-64 overflow-hidden">
+						<a href="/read/{book.id}" class="bg-muted flex min-h-40 items-center justify-center">
 							{#if covers[book.id]}
-								<img src={covers[book.id]} alt="" class="h-full w-full object-cover object-top" />
+								<img src={covers[book.id]} alt="" class="max-h-80 w-auto max-w-full object-contain" />
 							{/if}
 						</a>
 						<Card.Header>
