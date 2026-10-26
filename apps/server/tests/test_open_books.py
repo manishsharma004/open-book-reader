@@ -100,6 +100,8 @@ def test_routes_hide_source_urls(monkeypatch):
         _allowed(url, hosts, allow_http)
         if "search.opds" in url:
             return GUTENBERG_FEED, "application/atom+xml"
+        if url.endswith(".epub"):
+            return b"PK\x03\x04epub-bytes", "application/octet-stream"
         return b"Hello from the catalog.", "text/plain"
 
     monkeypatch.setattr("open_book.open_books.providers.get", fake_get)
@@ -119,3 +121,7 @@ def test_routes_hide_source_urls(monkeypatch):
     assert downloaded.status_code == 200
     assert downloaded.content.startswith(b"Hello")
     assert downloaded.headers["content-type"].startswith("text/plain")
+    epub = client.post("/v1/open-books/gutenberg/1342", json={"mediaType": "application/epub+zip"})
+    assert epub.status_code == 200
+    assert epub.content.startswith(b"PK")
+    assert epub.headers["content-type"].startswith("application/epub+zip")

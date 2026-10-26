@@ -116,7 +116,7 @@ export function chaptersFromText(pages: string[]): Chapter[] {
 		const other: Array<{ index: number; kind: 'roman' | 'caps' }> = [];
 		for (let index = 0; index < lines.length; index += 1) {
 			const line = lines[index];
-			if (tocLine(line)) continue;
+			if (tocLine(line) || /^\[illustration\b/i.test(line)) continue;
 			if (LABEL.test(line) && line.length <= 100 && wordCount(line) <= 16) named.push(index);
 			else if (MATTER.test(line) && wordCount(line) <= 8 && line.length <= 80) named.push(index);
 			else if (ROMAN_ONLY.test(line)) other.push({ index, kind: 'roman' });
