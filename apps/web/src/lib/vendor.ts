@@ -48,6 +48,11 @@ export async function speak(
 	sampleMime: string | null = null,
 	signal?: AbortSignal
 ) {
+	if (settings.vendor === 'pocket-device') {
+		const { speakPocketDevice } = await import('#lib/pocket-device.js');
+		const sample = sampleBase64 && attachSample ? Uint8Array.from(atob(sampleBase64), (char) => char.charCodeAt(0)) : null;
+		return speakPocketDevice(settings, text, sample, signal);
+	}
 	const payload = await postJson(
 		'/v1/speak',
 		{

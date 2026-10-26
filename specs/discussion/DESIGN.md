@@ -4,7 +4,7 @@ Status: discussion. The UI is Svelte and the server is FastAPI. Model vendors st
 
 - The browser is the system of record. Book bytes, page and word geometry, chapters, spans, metadata, embeddings, transcripts, audio, playback position, task state, and vendor settings live in IndexedDB. Blob values hold the file and audio bytes.
 - The backend that runs transcription, analysis, and completion is a stateless proxy. A request carries the payload and the provider profile. The response is the whole result. The server stores none of the book and none of the settings.
-- The browser does not call a vendor origin itself. The proxy forwards to the profile's base URL so a local or remote model host does not have to speak CORS.
+- The browser does not call a vendor origin itself. The proxy forwards to the profile's base URL so a local or remote model host does not have to speak CORS. On-device Pocket TTS is the exception: the page downloads the public ONNX weights and ONNX Runtime, runs them locally, and does not send the book text to those hosts.
 
 Discussion thread: https://github.com/manishsharma004/open-book-reader/issues/1
 

@@ -16,9 +16,11 @@ export const EMOTIONS = [
 
 export type EmotionName = (typeof EMOTIONS)[number];
 export type EmotionChoice = EmotionName | 'auto';
-export type TtsVendor = 'browser' | 'openai' | 'kokoro' | 'elevenlabs' | 'pocket';
+export type TtsVendor = 'browser' | 'openai' | 'kokoro' | 'elevenlabs' | 'pocket' | 'pocket-device';
 
 export const POCKET_MODEL = 'english_18m_refl_2026-10';
+export const POCKET_DEVICE_MODEL = 'english_2026-04';
+export const POCKET_ONNX_BASE = 'https://huggingface.co/vlapky/pocket-tts-onnx/resolve/main/onnx';
 export const POCKET_VOICE = 'alba';
 export const POCKET_PORT = '7508';
 const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '127.0.0.1']);
@@ -108,7 +110,12 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 	const lookahead = raw.lookahead === 3 ? 3 : 2;
 	const ttsRaw = raw.tts && typeof raw.tts === 'object' ? (raw.tts as Record<string, unknown>) : {};
 	const vendorName =
-		vendor === 'openai' || vendor === 'kokoro' || vendor === 'elevenlabs' || vendor === 'pocket' || vendor === 'browser'
+		vendor === 'openai' ||
+		vendor === 'kokoro' ||
+		vendor === 'elevenlabs' ||
+		vendor === 'pocket' ||
+		vendor === 'pocket-device' ||
+		vendor === 'browser'
 			? vendor
 			: 'browser';
 	let baseUrl = typeof ttsRaw.baseUrl === 'string' ? ttsRaw.baseUrl : base.tts.baseUrl;
@@ -174,14 +181,26 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 		}
 		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
 	}
-	if (tts.vendor === 'kokoro' && previous === 'pocket') {
+	if (tts.vendor === 'pocket-device' && previous !== 'pocket-device') {
+		if (!tts.model || tts.model === 'kokoro' || tts.model === POCKET_MODEL || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
+			tts.model = POCKET_DEVICE_MODEL;
+		}
+		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
+		if (!tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = POCKET_ONNX_BASE;
+	}
+	if (tts.vendor === 'pocket' && previous === 'pocket-device') {
+		if (tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
+		if (tts.model === POCKET_DEVICE_MODEL) tts.model = POCKET_MODEL;
+	}
+	if (tts.vendor === 'kokoro' && (previous === 'pocket' || previous === 'pocket-device')) {
 		const current = speechUrl(tts.baseUrl);
 		if (current && current.port === POCKET_PORT && POCKET_HOSTS.has(current.hostname)) {
 			current.port = '8880';
 			current.pathname = '/v1';
 			tts.baseUrl = `${current.origin}/v1`;
 		}
-		if (tts.model === POCKET_MODEL) tts.model = 'kokoro';
+		if (tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = 'http://127.0.0.1:8880/v1';
+		if (tts.model === POCKET_MODEL || tts.model === POCKET_DEVICE_MODEL) tts.model = 'kokoro';
 		if (tts.voice === POCKET_VOICE) tts.voice = 'af_heart';
 	}
 }

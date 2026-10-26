@@ -71,12 +71,12 @@
 
 	async function testSpeech() {
 		if (!settings || settings.tts.vendor === 'browser') {
-			speechResult = 'Choose Kokoro, Pocket, OpenAI, or ElevenLabs to test a voice host.';
+			speechResult = 'Choose Kokoro, Pocket, On-device Pocket, OpenAI, or ElevenLabs to test a voice.';
 			return;
 		}
-		speechResult = 'Calling…';
+		speechResult = settings.tts.vendor === 'pocket-device' ? 'Loading the on-device model…' : 'Calling…';
 		try {
-			const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+			const useSample = settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device' || settings.sendSample;
 			const sample = useSample ? await voiceSample(settings) : undefined;
 			const sampleBase64 = sample ? toBase64(new Uint8Array(await sample.arrayBuffer())) : null;
 			const result = await speak(
@@ -256,7 +256,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. Choosing Pocket points this form at that service. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. On-device Pocket TTS runs the published English ONNX bundle in this browser: WebNN uses the phone NPU when the page is a secure context and the browser exposes it, and otherwise the same graph runs in WebAssembly. The first clip downloads about 125 MB and keeps it here. The text is not sent to a server. Choosing Pocket points this form at port 7508. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -277,6 +277,7 @@
 						<option value="browser">Browser voice</option>
 						<option value="kokoro">Kokoro</option>
 						<option value="pocket">Pocket TTS</option>
+						<option value="pocket-device">On-device Pocket TTS</option>
 						<option value="openai">OpenAI-compatible</option>
 						<option value="elevenlabs">ElevenLabs</option>
 					</select>
@@ -305,7 +306,7 @@
 				<div class="border-border grid gap-3 border-t pt-3">
 					<h3 class="text-sm font-medium">Voice sample</h3>
 					<p class="text-muted-foreground text-xs">
-						The sample stays in this browser. Pocket TTS receives it as the reference clip on each request. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
+						The sample stays in this browser. Pocket TTS, including the on-device model, uses it as the reference clip. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
 					<Input type="file" accept="audio/*" bind:ref={sampleInput} onchange={onSample} />
 					{#if settings.cloneBlobId || settings.cloneFileName}

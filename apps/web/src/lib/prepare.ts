@@ -114,7 +114,7 @@ export function cacheKey(index: number, settings: AppSettings) {
 			model: settings.tts.model,
 			voice: settings.tts.voice,
 			key: settings.tts.apiKey.length,
-			sample: settings.tts.vendor === 'pocket' || settings.sendSample ? settings.cloneBlobId : null
+			sample: settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device' || settings.sendSample ? settings.cloneBlobId : null
 		},
 		pace: speechPace(settings.speechPace)
 	});
@@ -391,7 +391,7 @@ function makeClips(words: PageWord[], clauses: Clause[], pace: number): SpeechCl
 }
 
 function clipIdentity(settings: AppSettings, clip: SpeechClip): SpeechIdentity {
-	const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+	const useSample = settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device' || settings.sendSample;
 	return {
 		text: clip.text,
 		emotion: clip.emotion,
@@ -447,9 +447,12 @@ async function speakClip(
 		stage: 'tts',
 		status: 'start',
 		ms: null,
-		detail: `POST /v1/speak clip ${which}/${total} (${clip.wordEnd - clip.wordStart} words) → ${settings.tts.vendor} ${hostOf(settings.tts.baseUrl)}`
+		detail:
+			settings.tts.vendor === 'pocket-device'
+				? `On-device Pocket TTS clip ${which}/${total} (${clip.wordEnd - clip.wordStart} words)`
+				: `POST /v1/speak clip ${which}/${total} (${clip.wordEnd - clip.wordStart} words) → ${settings.tts.vendor} ${hostOf(settings.tts.baseUrl)}`
 	});
-	const useSample = settings.tts.vendor === 'pocket' || settings.sendSample;
+	const useSample = settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device' || settings.sendSample;
 	const sample = useSample ? await voiceSample(settings) : undefined;
 	if (signal.aborted) throw new DOMException('Skipped', 'AbortError');
 	const sampleBase64 = sample ? await blobToBase64(sample) : null;
