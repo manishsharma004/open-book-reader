@@ -35,7 +35,9 @@
 	let pageDraft = $state('1');
 	let editingPage = $state(false);
 	let words = $state<PageWord[]>([]);
-	let prepared = $state<PreparedPage | null>(null);
+	// The buffer fills clip audio on this same object after it is stored. A deep
+	// $state proxy would keep the empty URLs from the moment the page was assigned.
+	let prepared = $state.raw<PreparedPage | null>(null);
 	let activeWord = $state(-1);
 	let playing = $state(false);
 	let carryPage = -1;
