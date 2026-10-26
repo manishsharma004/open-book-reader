@@ -33,7 +33,9 @@ export function wordHits(pieces: MarkPiece[], words: string[]): WordSlice[][] {
 		while (cursor < text.length && /\s/u.test(text[cursor] ?? '')) cursor += 1;
 		const at = target ? text.indexOf(target, cursor) : -1;
 		const gap = at < 0 ? '' : text.slice(cursor, at);
-		if (at < 0 || gap.trim().length > 0) {
+		// Quotes and dashes sit between spoken words. A gap that contains a letter is a
+		// different word, and matching past it would highlight the wrong place.
+		if (at < 0 || /[\p{L}\p{N}]/u.test(gap)) {
 			hits.push([]);
 			continue;
 		}

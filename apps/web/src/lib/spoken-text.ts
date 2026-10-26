@@ -55,9 +55,14 @@ export function spokenWordSpans(parts: SpokenPiece[]): SpokenWordSpan[] {
 			continue;
 		}
 		for (const mark of marksIn(part.segment)) {
-			const opens = OPENER.test(mark) && !closed && wordFollows(parts, index);
-			if (opens) pending += mark;
-			else if (spans.length > 0) spans[spans.length - 1].text += mark;
+			// A curly quote after a full stop opens the next sentence. A straight quote
+			// there is the closer for the sentence that just ended.
+			const unambiguous = /[“‘«(\[{]/u.test(mark);
+			const opens = OPENER.test(mark) && wordFollows(parts, index) && (unambiguous || !closed);
+			if (opens) {
+				pending += mark;
+				closed = false;
+			} else if (spans.length > 0) spans[spans.length - 1].text += mark;
 			else pending += mark;
 			if (/[.,;:!?…]/.test(mark)) closed = true;
 		}

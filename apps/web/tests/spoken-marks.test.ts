@@ -21,3 +21,13 @@ test('spoken words land on the column pieces, including a ligature and a split w
 	assert.equal(covered(pieces, hits)[9], 'di\uFB00erent');
 	assert.equal(hits[9].length, 3);
 });
+
+test('quotation marks between words still map the words after them', () => {
+	const pieces: MarkPiece[] = [
+		{ text: 'daughters.', block: true },
+		{ text: '\u201CMy dear Mr. Bennet,\u201D said his lady.', block: false }
+	];
+	const words = ['daughters.', 'My', 'dear', 'Mr.', 'Bennet,', 'said', 'his', 'lady.'];
+	const hits = wordHits(pieces, words);
+	assert.deepEqual(covered(pieces, hits), ['daughters.', 'My', 'dear', 'Mr.', 'Bennet,', 'said', 'his', 'lady.']);
+});

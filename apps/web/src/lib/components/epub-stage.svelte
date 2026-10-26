@@ -76,12 +76,12 @@
 
 	function piecesInView(doc: Document, widthPx: number): DomPiece[] {
 		const flow = doc.getElementById('ob-flow');
-		if (!flow) return [];
+		if (!flow || widthPx < 1) return [];
+		// The open page is a later column slid into the iframe. Its text stays a column-width
+		// away from the flow box, so measuring from the flow's left edge only saw column 1.
 		const origin = flow.getBoundingClientRect().left;
-		const inView = (left: number) => {
-			const delta = left - origin;
-			return delta >= -4 && delta < widthPx - 4;
-		};
+		const visible = Math.max(0, Math.round(-columnShift / widthPx));
+		const inView = (left: number) => Math.floor((left - origin) / widthPx + 0.02) === visible;
 		const pieces: DomPiece[] = [];
 		const walk = (node: Node) => {
 			if (node.nodeType === Node.TEXT_NODE) {
@@ -161,9 +161,11 @@
 		}
 		const flow = doc.getElementById('ob-flow');
 		if (!flow) return;
+		const ViewElement = doc.defaultView?.Element;
 		flow.onclick = (event) => {
 			const target = event.target;
-			if (!(target instanceof Element)) return;
+			// The page lives in the iframe's document, so the parent's Element is a different class.
+			if (!ViewElement || !(target instanceof ViewElement)) return;
 			const span = target.closest('[data-ob-word]');
 			if (!span) return;
 			event.preventDefault();
@@ -176,12 +178,13 @@
 		const doc = view?.contentDocument;
 		if (!doc?.getElementById('ob-flow') || width < 40) return;
 		const widthPx = columnWidth(width);
-		const key = `${shown}:${words.map((word) => word.text).join('\u0001')}`;
+		const key = `${shown}:${Math.round(-columnShift)}:${words.map((word) => word.text).join('\u0001')}`;
 		const existing = doc.querySelectorAll('span.ob-w');
 		if (key === markedKey && existing.length > 0) {
 			for (const span of existing) {
-				if (!(span instanceof HTMLElement)) continue;
-				span.className = markClass(Number(span.dataset.obWord));
+				const word = Number(span.getAttribute('data-ob-word'));
+				if (!Number.isInteger(word)) continue;
+				(span as HTMLElement).className = markClass(word);
 			}
 			return;
 		}

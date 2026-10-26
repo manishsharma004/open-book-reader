@@ -15,6 +15,8 @@ test('a comma and a full stop stay on the words around them', () => {
 test('quotes stay with the words they mark', () => {
 	assert.deepEqual(segmentSpokenWords('"Hello," she said.'), ['"Hello,"', 'she', 'said.']);
 	assert.deepEqual(segmentSpokenWords('She said "hello."'), ['She', 'said', '"hello."']);
+	assert.deepEqual(segmentSpokenWords('daughters. “My dear'), ['daughters.', '“My', 'dear']);
+	assert.deepEqual(segmentSpokenWords('daughters.“My dear'), ['daughters.', '“My', 'dear']);
 });
 
 test('a question mark and an exclamation stay on the last word', () => {
