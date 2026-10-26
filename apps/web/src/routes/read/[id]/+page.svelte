@@ -24,6 +24,7 @@
 	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
+	import { companionPage, spreadActive, turnTarget } from '#lib/spread.js';
 	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { Palette } from '#lib/theme.js';
@@ -55,6 +56,11 @@
 
 	let stage = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
+	let canvasRight = $state<HTMLCanvasElement | null>(null);
+	let facingWanted = $state(false);
+	let stageWidth = $state(0);
+	let stageHeight = $state(0);
+	let companionWords = $state<PageWord[]>([]);
 	let pageSheet = $state<HTMLDivElement | null>(null);
 	let pageField = $state<HTMLInputElement | null>(null);
 	let dragX = $state(0);
@@ -89,6 +95,9 @@
 	const shownPage = $derived(scrub ?? pageIndex);
 	const chapters = $derived(book?.chapters ?? []);
 	const chapterTrail = $derived(activeTrail(chapters, shownPage));
+	const spreadOn = $derived(spreadActive(facingWanted, stageWidth, stageHeight, book?.pageCount ?? 0));
+	const companionIndex = $derived(companionPage(pageIndex, book?.pageCount ?? 0, spreadOn));
+	const facingMode = $derived(spreadOn ? 'on' : facingWanted ? 'waiting' : 'off');
 	let outlineOpen = $state(true);
 	const field = 'border-input bg-background h-8 rounded-lg border px-2 text-sm';
 
@@ -263,15 +272,50 @@
 		playClip(index, clip.wordStart, token, null);
 	});
 
+	let restoredFacing = false;
+	$effect(() => {
+		if (restoredFacing || typeof sessionStorage === 'undefined') return;
+		restoredFacing = true;
+		if (sessionStorage.getItem('open-book-facing') === '1') facingWanted = true;
+	});
+
+	$effect(() => {
+		const index = companionIndex;
+		const kind = book?.kind;
+		const current = settings;
+		if (index < 0 || kind !== 'text' || !current) {
+			companionWords = [];
+			return;
+		}
+		let cancelled = false;
+		void ensurePage(index, current).then((page) => {
+			if (!cancelled && page.pageIndex === index) companionWords = page.words;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
+
 	$effect(() => {
 		const node = stage;
 		if (!node) return;
 		const observer = new ResizeObserver(() => {
+			stageWidth = node.clientWidth;
+			stageHeight = node.clientHeight;
 			void paint();
 		});
 		observer.observe(node);
+		stageWidth = node.clientWidth;
+		stageHeight = node.clientHeight;
 		void paint();
 		return () => observer.disconnect();
+	});
+
+	$effect(() => {
+		canvasRight;
+		companionIndex;
+		if (book?.kind === 'text') return;
+		void paint();
 	});
 
 	$effect(() => {
@@ -385,6 +429,25 @@
 		return { left: x, top: y - height, width: word.w * viewport.scale, height };
 	}
 
+	async function drawPdfPage(target: HTMLCanvasElement, pageNumber: number, slotWidth: number, slotHeight: number) {
+		if (!pdf) return null;
+		const pdfPage = await pdf.getPage(pageNumber);
+		const base = pdfPage.getViewport({ scale: 1 });
+		const scale = Math.min(slotWidth / base.width, slotHeight / base.height);
+		if (!Number.isFinite(scale) || scale <= 0) return null;
+		const next = pdfPage.getViewport({ scale });
+		const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+		target.width = Math.floor(next.width * outputScale);
+		target.height = Math.floor(next.height * outputScale);
+		target.style.width = `${next.width}px`;
+		target.style.height = `${next.height}px`;
+		const canvasContext = target.getContext('2d');
+		if (!canvasContext) return null;
+		canvasContext.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+		await pdfPage.render({ canvas: target, canvasContext, viewport: next }).promise;
+		return next;
+	}
+
 	async function paint() {
 		const gen = ++paintGen;
 		if (book?.kind === 'text') return;
@@ -392,26 +455,34 @@
 		const width = stage.clientWidth;
 		const height = stage.clientHeight;
 		if (width < 40 || height < 40) return;
-		const sizeKey = `${prepared.pageIndex}:${Math.round(width)}x${Math.round(height)}`;
+		const rightIndex = companionIndex;
+		if (rightIndex >= 0 && !canvasRight) return;
+		const sizeKey = `${prepared.pageIndex}:${rightIndex}:${Math.round(width)}x${Math.round(height)}`;
 		if (sizeKey === paintedSize) return;
-		const pdfPage = await pdf.getPage(prepared.pageIndex + 1);
-		if (gen !== paintGen) return;
-		const base = pdfPage.getViewport({ scale: 1 });
-		const scale = Math.min((width - 24) / base.width, (height - 24) / base.height);
-		if (!Number.isFinite(scale) || scale <= 0) return;
-		const next = pdfPage.getViewport({ scale });
-		const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-		canvas.width = Math.floor(next.width * outputScale);
-		canvas.height = Math.floor(next.height * outputScale);
-		canvas.style.width = `${next.width}px`;
-		canvas.style.height = `${next.height}px`;
-		const canvasContext = canvas.getContext('2d');
-		if (!canvasContext) return;
-		canvasContext.setTransform(outputScale, 0, 0, outputScale, 0, 0);
-		await pdfPage.render({ canvas, canvasContext, viewport: next }).promise;
-		if (gen !== paintGen) return;
+		const gap = rightIndex >= 0 ? 16 : 0;
+		const slotWidth = rightIndex >= 0 ? (width - 24 - gap) / 2 : width - 24;
+		const slotHeight = height - 24;
+		if (slotWidth < 40) return;
+		const next = await drawPdfPage(canvas, prepared.pageIndex + 1, slotWidth, slotHeight);
+		if (gen !== paintGen || !next) return;
+		if (rightIndex >= 0 && canvasRight) {
+			const drawn = await drawPdfPage(canvasRight, rightIndex + 1, slotWidth, slotHeight);
+			if (gen !== paintGen || !drawn) return;
+		}
 		paintedSize = sizeKey;
 		viewport = next;
+	}
+
+	function setFacing(next: boolean) {
+		facingWanted = next;
+		paintedSize = '';
+		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-facing', next ? '1' : '0');
+		void paint();
+	}
+
+	function leafTarget(direction: 1 | -1) {
+		if (!book) return pageIndex;
+		return turnTarget(pageIndex, book.pageCount, direction, spreadOn);
 	}
 
 	async function rememberChapters(source: Book, list: Book['chapters']) {
@@ -452,12 +523,14 @@
 
 	function playTurn(direction: 1 | -1) {
 		if (!book || !stage) return;
+		const target = leafTarget(direction);
+		if (target === pageIndex) return;
 		if (motionReduced()) {
 			dragAnimate = false;
 			dragX = 0;
 			pageOpacity = 1;
 			turnLock = false;
-			jump(pageIndex + direction);
+			jump(target);
 			return;
 		}
 		const width = Math.max(stage.clientWidth, 1);
@@ -476,7 +549,7 @@
 			pageOpacity = 0;
 			const enter = Math.min(width * 0.22, 120);
 			dragX = direction > 0 ? enter : -enter;
-			jump(pageIndex + direction);
+			jump(target);
 			turnLock = false;
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
@@ -520,8 +593,8 @@
 			}
 		}
 		event.preventDefault();
-		const atStart = pageIndex <= 0 && dx > 0;
-		const atEnd = pageIndex >= book.pageCount - 1 && dx < 0;
+		const atStart = leafTarget(-1) === pageIndex && dx > 0;
+		const atEnd = leafTarget(1) === pageIndex && dx < 0;
 		dragX = atStart || atEnd ? dx * 0.2 : dx;
 	}
 
@@ -533,8 +606,8 @@
 		if (moved) swallowUntil = performance.now() + 250;
 		if (!moved) return;
 		const passed = Math.abs(dx) > Math.min(88, stage.clientWidth * 0.2);
-		if (passed && dx < 0 && pageIndex < book.pageCount - 1) playTurn(1);
-		else if (passed && dx > 0 && pageIndex > 0) playTurn(-1);
+		if (passed && dx < 0 && leafTarget(1) !== pageIndex) playTurn(1);
+		else if (passed && dx > 0 && leafTarget(-1) !== pageIndex) playTurn(-1);
 		else settleSheet();
 	}
 
@@ -905,8 +978,12 @@
 				{chapterTrail[chapterTrail.length - 1]?.title}
 			</span>
 		{/if}
-		<span class="text-muted-foreground text-sm tabular-nums" data-current-page={book ? shownPage + 1 : ''}>
-			{book ? `${shownPage + 1} / ${book.pageCount}` : ''}
+		<span
+			class="text-muted-foreground text-sm tabular-nums"
+			data-current-page={book ? shownPage + 1 : ''}
+			data-companion-page={companionIndex >= 0 ? companionIndex + 1 : ''}
+		>
+			{book ? (companionIndex >= 0 ? `${shownPage + 1}–${companionIndex + 1} / ${book.pageCount}` : `${shownPage + 1} / ${book.pageCount}`) : ''}
 		</span>
 		<select
 			class={field}
@@ -951,12 +1028,11 @@
 					onpointercancel={onPagePointerCancel}
 					onclickcapture={onPageClickCapture}
 				>
-					<div class="flex h-full w-full items-center justify-center">
+					<div class="flex h-full w-full items-center justify-center" data-facing={facingMode}>
 						<div class="relative">
-							<div class="bg-white shadow-sm absolute inset-0" aria-hidden="true"></div>
 							<div
 								bind:this={pageSheet}
-								class="relative bg-white shadow-sm"
+								class="relative flex items-stretch justify-center gap-4"
 								class:shadow-xl={dragX !== 0}
 								data-page-sheet
 								data-drag={Math.round(dragX)}
@@ -964,9 +1040,13 @@
 								style:opacity={pageOpacity}
 								style:transition={dragAnimate ? 'transform 300ms ease, opacity 220ms ease' : 'none'}
 							>
+							<div class="relative bg-white shadow-sm" data-spread-page="left">
 							<canvas bind:this={canvas} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
 							{#if book?.kind === 'text'}
-								<div class="w-[min(42rem,86vw)] max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page>
+								<div
+									class="{companionIndex >= 0 ? 'w-[min(36rem,42vw)]' : 'w-[min(42rem,86vw)]'} max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900"
+									data-text-page
+								>
 									{#each words as word, index (`text:${index}:${word.charStart}`)}
 										<button
 											type="button"
@@ -1020,6 +1100,25 @@
 								</div>
 							{/if}
 							</div>
+							{#if companionIndex >= 0}
+								<button
+									type="button"
+									class="relative bg-white text-left shadow-sm"
+									data-spread-page="right"
+									aria-label={`Page ${companionIndex + 1}`}
+									onclick={() => jump(companionIndex)}
+								>
+									<canvas bind:this={canvasRight} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
+									{#if book?.kind === 'text'}
+										<div class="w-[min(36rem,42vw)] max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page="right">
+											{#each companionWords as word, index (`right:${index}:${word.charStart}`)}
+												<span class:mt-4={word.role === 'heading'} class:block={word.role === 'heading'} class:text-xl={word.role === 'heading'}>{word.text}</span>{' '}
+											{/each}
+										</div>
+									{/if}
+								</button>
+							{/if}
+							</div>
 						</div>
 					</div>
 					{#if buffering}
@@ -1051,10 +1150,21 @@
 
 	<footer class="border-border bg-card shrink-0 border-t px-4 py-3">
 		<div class="flex flex-wrap items-center gap-3">
-			<Button variant="outline" size="sm" onclick={() => jump(pageIndex - 1)} disabled={pageIndex === 0}>Previous</Button>
+			<Button variant="outline" size="sm" onclick={() => jump(leafTarget(-1))} disabled={!book || leafTarget(-1) === pageIndex}>Previous</Button>
 			<Button onclick={toggle} disabled={buffering || words.length === 0}>{playing ? 'Pause' : 'Play'}</Button>
-			<Button variant="outline" size="sm" onclick={() => jump(pageIndex + 1)} disabled={!book || pageIndex >= book.pageCount - 1}>
+			<Button variant="outline" size="sm" onclick={() => jump(leafTarget(1))} disabled={!book || leafTarget(1) === pageIndex}>
 				Next
+			</Button>
+			<Button
+				variant={facingWanted ? 'secondary' : 'outline'}
+				size="sm"
+				aria-pressed={facingWanted}
+				data-facing-toggle
+				data-facing={facingMode}
+				title={facingMode === 'waiting' ? 'Widen the window to show two pages' : 'Show two pages side by side'}
+				onclick={() => setFacing(!facingWanted)}
+			>
+				Two pages
 			</Button>
 			<form class="flex items-center gap-2" onsubmit={goToPage}>
 				<label class="text-muted-foreground text-xs" for="go-to-page">Go to page</label>
