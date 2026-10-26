@@ -7,6 +7,7 @@
 	import { saveEpubFile, savePdfFile, saveTextFile } from '#lib/library.js';
 	import {
 		coverPath,
+		downloadCover,
 		downloadOpenBook,
 		listProviders,
 		searchOpenBooks,
@@ -83,13 +84,16 @@
 		busy = book.id;
 		error = '';
 		try {
-			const file = await downloadOpenBook(book.provider, book.id, format.mediaType, book.title);
+			const [file, cover] = await Promise.all([
+				downloadOpenBook(book.provider, book.id, format.mediaType, book.title),
+				downloadCover(book.provider, book.id)
+			]);
 			const saved =
 				format.mediaType === 'application/pdf'
-					? await savePdfFile(file)
+					? await savePdfFile(file, undefined, cover)
 					: format.mediaType === 'application/epub+zip'
-						? await saveEpubFile(file, book.title)
-						: await saveTextFile(file, book.title);
+						? await saveEpubFile(file, book.title, cover)
+						: await saveTextFile(file, book.title, cover);
 			await goto(`/read/${saved.book.id}`);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not keep that file.';

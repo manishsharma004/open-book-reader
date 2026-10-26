@@ -83,3 +83,17 @@ export async function downloadOpenBook(provider: string, id: string, mediaType: 
 export function coverPath(provider: string, id: string) {
 	return `/v1/open-books/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/cover`;
 }
+
+/** The picture on the catalog card. A missing cover does not block saving the book. */
+export async function downloadCover(provider: string, id: string): Promise<Blob | null> {
+	try {
+		const response = await fetch(coverPath(provider, id));
+		if (!response.ok) return null;
+		const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+		if (!type.startsWith('image/')) return null;
+		const blob = await response.blob();
+		return blob.size ? blob : null;
+	} catch {
+		return null;
+	}
+}
