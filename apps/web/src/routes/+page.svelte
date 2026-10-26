@@ -10,7 +10,7 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
 	import { deleteBook, getBlob, listBooks, type Book } from '#lib/db.js';
-	import { savePdfFile } from '#lib/library.js';
+	import { saveEpubFile, savePdfFile } from '#lib/library.js';
 	import { isPasswordError } from '#lib/pdf.js';
 
 	let books = $state<Book[]>([]);
@@ -82,14 +82,38 @@
 		return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 	}
 
+	function isEpub(file: File) {
+		return file.type === 'application/epub+zip' || file.name.toLowerCase().endsWith('.epub');
+	}
+
 	function takeFile(file: File | null | undefined) {
 		if (!file || busy) return;
 		if (fileInput) fileInput.value = '';
-		if (!isPdf(file)) {
+		if (!isPdf(file) && !isEpub(file)) {
 			picked = null;
 			pendingFile = null;
 			needsPassword = false;
-			error = 'Choose a PDF file.';
+			error = 'Choose a PDF or EPUB file.';
+			return;
+		}
+		if (isEpub(file)) {
+			picked = { name: file.name, size: file.size };
+			needsPassword = false;
+			password = '';
+			error = '';
+			busy = true;
+			void saveEpubFile(file)
+				.then(async (saved) => {
+					open = false;
+					if (saved.existing) await goto(`/read/${saved.book.id}`);
+					else await refresh();
+				})
+				.catch((caught) => {
+					error = caught instanceof Error ? caught.message : 'Could not open that EPUB.';
+				})
+				.finally(() => {
+					busy = false;
+				});
 			return;
 		}
 		picked = { name: file.name, size: file.size };
@@ -136,7 +160,7 @@
 		<div>
 			<h1 class="text-3xl font-semibold tracking-tight">Library</h1>
 			<p class="text-muted-foreground mt-1 max-w-xl text-sm">
-				Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser.
+				Add a PDF or EPUB you own, or browse books that are free to keep. Either way it stays in this browser.
 			</p>
 		</div>
 		<div class="flex gap-2">
@@ -149,7 +173,7 @@
 		<Card.Root class="border-dashed">
 			<Card.Header>
 				<Card.Title>No books yet</Card.Title>
-				<Card.Description>Add a PDF you own, or browse books that are free to keep. Either way it stays in this browser.</Card.Description>
+				<Card.Description>Add a PDF or EPUB you own, or browse books that are free to keep. Either way it stays in this browser.</Card.Description>
 			</Card.Header>
 			<Card.Footer class="gap-2">
 				<Button href="/open" variant="secondary">Browse open books</Button>
@@ -208,7 +232,7 @@
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header class="pr-8">
 			<Dialog.Title>Add a book</Dialog.Title>
-			<Dialog.Description>PDF files stay in this browser. Pages with little or no text layer are read with OCR.</Dialog.Description>
+			<Dialog.Description>PDF and EPUB files stay in this browser. PDF pages with little or no text are read with OCR. An EPUB keeps its pictures and styling.</Dialog.Description>
 		</Dialog.Header>
 		<div class="grid gap-3">
 			<label
@@ -226,7 +250,7 @@
 					<UploadIcon class="size-6" />
 				</span>
 				<span class="grid gap-1">
-					<span class="text-sm font-medium">{busy ? 'Adding the PDF…' : dragging ? 'Drop the PDF' : 'Drop a PDF here'}</span>
+					<span class="text-sm font-medium">{busy ? 'Adding the book…' : dragging ? 'Drop the book' : 'Drop a PDF or EPUB here'}</span>
 					<span class="text-muted-foreground text-xs">
 						{#if picked}
 							{picked.name} · {formatBytes(picked.size)}
@@ -240,7 +264,7 @@
 					id="book-file"
 					class="sr-only"
 					type="file"
-					accept="application/pdf,.pdf"
+					accept="application/pdf,.pdf,application/epub+zip,.epub"
 					onchange={onFile}
 					disabled={busy}
 				/>

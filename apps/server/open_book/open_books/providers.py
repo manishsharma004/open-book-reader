@@ -17,6 +17,7 @@ from open_book.open_books.refs import pack_path, unpack_path
 PDF = Format("application/pdf", "PDF", True)
 TEXT = Format("text/plain", "Text", True)
 EPUB = Format("application/epub+zip", "EPUB", False)
+EPUB_READY = Format("application/epub+zip", "EPUB", True)
 _SE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}(?:/[a-z0-9][a-z0-9_-]{0,80}){0,4}$")
 _IA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,160}$")
@@ -135,7 +136,7 @@ class Gutenberg:
                     entry.year,
                     "public-domain",
                     "Public domain in the USA.",
-                    (TEXT, EPUB),
+                    (TEXT, EPUB_READY),
                 )
             )
         next_page = None
@@ -146,8 +147,23 @@ class Gutenberg:
         return SearchPage(tuple(books), next_page)
 
     def file(self, book_id: str, media_type: str) -> tuple[bytes, str, str]:
-        if not book_id.isdigit() or media_type != "text/plain":
+        if not book_id.isdigit() or media_type not in {"text/plain", "application/epub+zip"}:
             raise FetchError(404, "That format is not available.")
+        if media_type == "application/epub+zip":
+            last_epub: FetchError | None = None
+            for url in (
+                f"https://www.gutenberg.org/cache/epub/{book_id}/pg{book_id}-images.epub",
+                f"https://www.gutenberg.org/cache/epub/{book_id}/pg{book_id}.epub",
+            ):
+                try:
+                    data, _media = get(url, self.hosts)
+                except FetchError as exc:
+                    last_epub = exc
+                    continue
+                if data.startswith(b"PK"):
+                    return data, "application/epub+zip", f"{book_id}.epub"
+                last_epub = FetchError(404, "That format is not available.")
+            raise last_epub or FetchError(404, "That format is not available.")
         last: FetchError | None = None
         for url in (
             f"https://www.gutenberg.org/files/{book_id}/{book_id}-0.txt",

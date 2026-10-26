@@ -4,7 +4,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
-	import { savePdfFile, saveTextFile } from '#lib/library.js';
+	import { saveEpubFile, savePdfFile, saveTextFile } from '#lib/library.js';
 	import {
 		coverPath,
 		downloadOpenBook,
@@ -85,7 +85,11 @@
 		try {
 			const file = await downloadOpenBook(book.provider, book.id, format.mediaType, book.title);
 			const saved =
-				format.mediaType === 'application/pdf' ? await savePdfFile(file) : await saveTextFile(file, book.title);
+				format.mediaType === 'application/pdf'
+					? await savePdfFile(file)
+					: format.mediaType === 'application/epub+zip'
+						? await saveEpubFile(file, book.title)
+						: await saveTextFile(file, book.title);
 			await goto(`/read/${saved.book.id}`);
 		} catch (caught) {
 			error = caught instanceof Error ? caught.message : 'Could not keep that file.';
@@ -204,7 +208,7 @@
 									size="sm"
 									variant={format.addable ? 'default' : 'outline'}
 									disabled={!format.addable || busy === book.id}
-									title={format.addable ? '' : 'EPUB is not paginated yet.'}
+									title={format.addable ? '' : 'This catalog does not offer that format yet.'}
 									onclick={() => add(book, format)}
 								>
 									{busy === book.id ? 'Adding…' : format.addable ? `Add ${format.label.toLowerCase()}` : format.label}
