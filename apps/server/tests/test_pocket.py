@@ -162,6 +162,7 @@ def test_service_form_keeps_the_sample_and_refuses_urls():
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["language"] == "english_18m_refl_2026-10"
+    assert health.json()["voiceCloning"] == "yes"
 
     both = client.post(
         "/tts",
@@ -191,6 +192,24 @@ def test_service_form_keeps_the_sample_and_refuses_urls():
     default = client.post("/tts", data={"text": "Default"})
     assert default.status_code == 200
     assert fake.calls[-1] == ("Default", None, b"")
+
+
+def test_service_refuses_a_sample_when_the_encoder_is_missing():
+    class NoEncoder(_Fake):
+        voice_cloning = False
+
+    fake = NoEncoder()
+    client = TestClient(pocket_app.create_app(fake))
+    health = client.get("/health")
+    assert health.json()["voiceCloning"] == "no"
+    refused = client.post(
+        "/tts",
+        data={"text": "Hello there"},
+        files={"voice_wav": ("clip.wav", b"RIFFxxxxWAVE", "audio/wav")},
+    )
+    assert refused.status_code == 400
+    assert "no voice encoder" in refused.json()["detail"]
+    assert fake.calls == []
 
 
 def test_tts_hands_generation_a_stop_event():

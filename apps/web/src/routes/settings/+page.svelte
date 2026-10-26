@@ -10,6 +10,7 @@
 	import type { Palette } from '#lib/theme.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
+	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
 
 	type Health = { version: string; ffmpeg: boolean; maxBodyBytes: number };
 
@@ -103,6 +104,13 @@
 		await saveVoiceSample(settings, file, file.name);
 		await commitSettings();
 		cloneResult = `Saved ${file.name} in this browser.`;
+	}
+
+	async function saveRecording(blob: Blob, name: string) {
+		if (!settings) return;
+		await saveVoiceSample(settings, blob, name);
+		await commitSettings();
+		cloneResult = `Saved ${name} in this browser.`;
 	}
 
 	async function removeSample() {
@@ -316,9 +324,12 @@
 				<div class="border-border grid gap-3 border-t pt-3">
 					<h3 class="text-sm font-medium">Voice sample</h3>
 					<p class="text-muted-foreground text-xs">
-						The sample stays in this browser. Pocket TTS, including the on-device model, uses it as the reference clip. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
+						The sample stays in this browser. Record up to 12 seconds, or choose a file. Pocket TTS and On-device Pocket TTS use it as the reference clip. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
-					<Input type="file" accept="audio/*" bind:ref={sampleInput} onchange={onSample} />
+					<div class="flex flex-wrap items-center gap-2">
+						<VoiceRecorder onsave={saveRecording} />
+						<Input type="file" accept="audio/*" bind:ref={sampleInput} onchange={onSample} />
+					</div>
 					{#if settings.cloneBlobId || settings.cloneFileName}
 						<div class="flex flex-wrap items-center gap-2" data-voice-sample>
 							<p class="text-sm">Saved sample: {settings.cloneFileName || 'audio in this browser'}</p>

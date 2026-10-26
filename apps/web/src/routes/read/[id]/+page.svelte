@@ -4,6 +4,7 @@
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
+	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
@@ -29,7 +30,7 @@
 		type SpeechClip
 	} from '#lib/prepare.js';
 	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
-	import { EMOTIONS, type EmotionChoice } from '#lib/settings.js';
+	import { EMOTIONS, saveVoiceSample, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
 	import { companionPage, spreadActive, turnTarget } from '#lib/spread.js';
 	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
@@ -1102,6 +1103,13 @@
 		sampleNote = 'Sample removed. Later speech uses the voice id.';
 	}
 
+	async function saveRecording(blob: Blob, name: string) {
+		if (!settings) return;
+		await saveVoiceSample(settings, blob, name);
+		voiceNote = '';
+		sampleNote = `Saved ${name}. Later speech uses it as the reference clip.`;
+	}
+
 	async function onPace(event: Event) {
 		if (!settings) return;
 		settings.speechPace = speechPace((event.currentTarget as HTMLInputElement).value);
@@ -1494,6 +1502,9 @@
 							}}
 						/>
 					</span>
+				{/if}
+				{#if settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device'}
+					<VoiceRecorder onsave={saveRecording} />
 				{/if}
 				{#if settings.cloneBlobId || settings.cloneFileName}
 					<span class="text-muted-foreground max-w-40 truncate text-xs" data-voice-sample>

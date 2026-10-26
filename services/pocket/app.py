@@ -37,6 +37,17 @@ _SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,5}$")
 logger = logging.getLogger("pocket_service")
 
 
+class VoiceCloningUnavailable(RuntimeError):
+    """The loaded weights have no voice encoder, so a sample cannot be cloned."""
+
+
+CLONING_UNAVAILABLE = (
+    "This Pocket process has no voice encoder, so a sample cannot be cloned. "
+    "Built-in voices still work. Accept the terms at https://huggingface.co/kyutai/pocket-tts, "
+    "set HF_TOKEN, and restart Pocket TTS. On-device Pocket TTS clones the same sample in the browser."
+)
+
+
 class Synthesizer(Protocol):
     def speak(
         self,
@@ -60,8 +71,9 @@ class PocketSynthesizer:
         self.model.to(self.device)
         default_voice = get_default_voice_for_language(language, None)
         self.default_state = self.model.get_state_for_audio_prompt(default_voice)
+        self.voice_cloning = bool(self.model.has_voice_cloning)
         self._lock = threading.Lock()
-        logger.info("pocket device=%s", self.device)
+        logger.info("pocket device=%s voice_cloning=%s", self.device, self.voice_cloning)
 
     def speak(
         self,
@@ -76,6 +88,8 @@ class PocketSynthesizer:
             if stop is not None and stop.is_set():
                 return None
             if voice_file is not None:
+                if not self.voice_cloning:
+                    raise VoiceCloningUnavailable(CLONING_UNAVAILABLE)
                 state = self.model.get_state_for_audio_prompt(voice_file, truncate=True)
             elif voice_name:
                 state = self.model.get_state_for_audio_prompt(voice_name)
@@ -142,6 +156,8 @@ def _synthesize(
     upload: tuple[str, bytes] | None,
     stop: threading.Event,
 ) -> bytes | None:
+    if upload is not None and not bool(getattr(synthesizer, "voice_cloning", True)):
+        raise VoiceCloningUnavailable(CLONING_UNAVAILABLE)
     if upload is not None:
         suffix, sample = upload
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
@@ -162,7 +178,8 @@ def create_app(synthesizer: Synthesizer, language: str = DEFAULT_LANGUAGE) -> Fa
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "healthy", "language": language}
+        cloning = bool(getattr(synthesizer, "voice_cloning", True))
+        return {"status": "healthy", "language": language, "voiceCloning": "yes" if cloning else "no"}
 
     @app.post("/tts")
     async def text_to_speech(
@@ -204,6 +221,8 @@ def create_app(synthesizer: Synthesizer, language: str = DEFAULT_LANGUAGE) -> Fa
             wav = await asyncio.to_thread(_synthesize, lock, synthesizer, spoken, name, upload, stop)
         except HTTPException:
             raise
+        except VoiceCloningUnavailable as exc:
+            raise HTTPException(400, str(exc)) from None
         except Exception:
             logger.exception("pocket synthesis failed")
             raise HTTPException(500, "Pocket TTS could not synthesize that request.") from None
