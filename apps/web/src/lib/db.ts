@@ -10,7 +10,7 @@ export type Book = {
 	addedAt: number;
 	blobId: string;
 	coverId: string | null;
-	kind?: 'pdf' | 'text';
+	kind?: 'pdf' | 'text' | 'epub';
 	chapters?: Chapter[];
 };
 

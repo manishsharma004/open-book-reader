@@ -75,7 +75,7 @@ export async function downloadOpenBook(provider: string, id: string, mediaType: 
 	});
 	if (!response.ok) throw new Error(await readError(response));
 	const bytes = await response.blob();
-	const suffix = mediaType === 'application/pdf' ? 'pdf' : 'txt';
+	const suffix = mediaType === 'application/pdf' ? 'pdf' : mediaType === 'application/epub+zip' ? 'epub' : 'txt';
 	const name = filenameOf(response.headers.get('content-disposition'), `${title}.${suffix}`);
 	return new File([bytes], name, { type: mediaType });
 }

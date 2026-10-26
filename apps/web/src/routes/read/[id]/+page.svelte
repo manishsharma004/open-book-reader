@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
+	import EpubStage from '#lib/components/epub-stage.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Slider } from '#lib/components/ui/slider/index.js';
-	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText } from '#lib/chapters.js';
+	import { activeTrail, chaptersFromDocument, chaptersFromOutline, chaptersFromText, type Chapter } from '#lib/chapters.js';
 	import { getBlob, getBook, updateBook, type Book } from '#lib/db.js';
 	import { openPdf, type PageWord } from '#lib/pdf.js';
 	import { paginateText } from '#lib/text-book.js';
@@ -54,6 +55,9 @@
 	let voices = $state<SpeechSynthesisVoice[]>([]);
 	let paintedSize = '';
 
+	let epubData = $state.raw<ArrayBuffer | null>(null);
+	let epubReady = false;
+	let epubPageText = '';
 	let stage = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let canvasRight = $state<HTMLCanvasElement | null>(null);
@@ -315,7 +319,7 @@
 	$effect(() => {
 		canvasRight;
 		companionIndex;
-		if (book?.kind === 'text') return;
+		if (book?.kind === 'text' || book?.kind === 'epub') return;
 		void paint();
 	});
 
@@ -330,6 +334,9 @@
 		let cancelled = false;
 		halt();
 		buffering = true;
+		epubData = null;
+		epubReady = false;
+		epubPageText = '';
 		(async () => {
 			const found = await getBook(bookId);
 			if (cancelled) return;
@@ -352,6 +359,12 @@
 				const pages = paginateText(await blob.text());
 				attachText(pages);
 				if (found.chapters == null) void rememberChapters(found, chaptersFromText(pages));
+			} else if (found.kind === 'epub') {
+				attachDocument(null);
+				attachText(null);
+				epubData = await blob.arrayBuffer();
+				pageIndex = 0;
+				return;
 			} else {
 				pdf = await openPdf(await blob.arrayBuffer());
 				if (cancelled) return;
@@ -460,7 +473,7 @@
 
 	async function drawSpread() {
 		const gen = ++paintGen;
-		if (book?.kind === 'text') return;
+		if (book?.kind === 'text' || book?.kind === 'epub') return;
 		if (!pdf || !canvas || !stage || !prepared) return;
 		const width = stage.clientWidth;
 		const height = stage.clientHeight;
@@ -488,6 +501,27 @@
 		paintedSize = '';
 		if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('open-book-facing', next ? '1' : '0');
 		void paint();
+	}
+
+	function onEpubLayout(pages: string[], chapters: Chapter[], done: boolean) {
+		const nextText = pages[pageIndex] ?? '';
+		attachText(pages);
+		if (book) {
+			const count = done ? Math.max(pages.length, 1) : Math.max(pages.length, book.pageCount, 1);
+			book = { ...book, pageCount: count, chapters: chapters.length ? chapters : (book.chapters ?? []) };
+			if (pageIndex > book.pageCount - 1) pageIndex = book.pageCount - 1;
+		}
+		if (!epubReady || (done && nextText !== epubPageText)) {
+			epubPageText = nextText;
+			epubReady = true;
+			pdfToken += 1;
+		}
+		if (done && book) void updateBook($state.snapshot(book));
+	}
+
+	function onEpubFail(message: string) {
+		buffering = false;
+		error = message;
 	}
 
 	function leafTarget(direction: 1 | -1) {
@@ -1038,6 +1072,9 @@
 					onpointercancel={onPagePointerCancel}
 					onclickcapture={onPageClickCapture}
 				>
+					{#if book?.kind === 'epub' && epubData}
+						<EpubStage data={epubData} page={pageIndex} spread={spreadOn} onlayout={onEpubLayout} onflick={playTurn} onfail={onEpubFail} />
+					{:else}
 					<div class="flex h-full w-full items-center justify-center" data-facing={facingMode}>
 						<div class="relative">
 							<div
@@ -1058,11 +1095,11 @@
 									data-text-page
 								>
 									{#each words as word, index (`text:${index}:${word.charStart}`)}
+										{#if word.role === 'heading' && words[index - 1]?.role !== 'heading'}<br />{/if}
 										<button
 											type="button"
 											class="rounded-sm"
-											class:mt-4={word.role === 'heading'}
-											class:block={word.role === 'heading'}
+											class:mt-4={word.role === 'heading' && words[index - 1]?.role !== 'heading'}
 											class:text-xl={word.role === 'heading'}
 											style:background={wordBackdrop(
 												index === activeWord || activeWord === -2,
@@ -1122,7 +1159,7 @@
 									{#if book?.kind === 'text'}
 										<div class="w-[min(36rem,42vw)] max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page="right">
 											{#each companionWords as word, index (`right:${index}:${word.charStart}`)}
-												<span class:mt-4={word.role === 'heading'} class:block={word.role === 'heading'} class:text-xl={word.role === 'heading'}>{word.text}</span>{' '}
+												<span class:mt-4={word.role === 'heading' && companionWords[index - 1]?.role !== 'heading'} class:text-xl={word.role === 'heading'}>{word.text}</span>{' '}
 											{/each}
 										</div>
 									{/if}
@@ -1131,6 +1168,7 @@
 							</div>
 						</div>
 					</div>
+					{/if}
 					{#if buffering}
 						<div class="bg-background/80 absolute inset-0 z-10 flex items-center justify-center">
 							<div class="bg-card border-border flex w-72 flex-col items-center gap-3 rounded-xl border px-6 py-5 shadow-sm">

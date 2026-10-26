@@ -65,6 +65,8 @@ def test_gutenberg_search_and_text_file(monkeypatch):
         _allowed(url, hosts, allow_http)
         if url.endswith(".txt"):
             return b"The Project Gutenberg eBook\n\nHello.", "text/plain"
+        if url.endswith(".epub"):
+            return b"PK\x03\x04epub", "application/epub+zip"
         return GUTENBERG_FEED, "application/atom+xml"
 
     monkeypatch.setattr("open_book.open_books.providers.get", fake_get)
@@ -76,8 +78,9 @@ def test_gutenberg_search_and_text_file(monkeypatch):
     data, media, name = Gutenberg().file("1342", "text/plain")
     assert media == "text/plain" and data.startswith(b"The Project") and name.endswith(".txt")
     assert seen[-1] == "https://www.gutenberg.org/files/1342/1342-0.txt"
-    with pytest.raises(FetchError):
-        Gutenberg().file("1342", "application/epub+zip")
+    epub, epub_media, epub_name = Gutenberg().file("1342", "application/epub+zip")
+    assert epub_media == "application/epub+zip" and epub.startswith(b"PK") and epub_name.endswith(".epub")
+    assert seen[-1] == "https://www.gutenberg.org/cache/epub/1342/pg1342-images.epub"
 
 
 def test_open_library_drops_borrowable(monkeypatch):
