@@ -1,6 +1,7 @@
 """The proxy may open only the completion and speech targets it is built for."""
 
 import os
+import socket
 
 import pytest
 from fastapi import HTTPException
@@ -14,6 +15,7 @@ from open_book.main import app
 def clear_allow(monkeypatch):
     monkeypatch.delenv("OLLAMA_ALLOW", raising=False)
     monkeypatch.delenv("SPEECH_ALLOW", raising=False)
+    monkeypatch.delenv("SPEECH_UPSTREAM", raising=False)
 
 
 def test_completion_allows_llm_port_on_named_hosts():
@@ -224,3 +226,48 @@ def test_complete_uses_the_ollama_path(monkeypatch):
         "http://127.0.0.1:11434/v1/chat/completions",
         "http://127.0.0.1:5173/v1/chat/completions",
     ]
+
+
+def _compose_dns(monkeypatch):
+    def fake(host, port, *args, **kwargs):
+        if host == "localhost":
+            address = "127.0.0.1"
+        elif host in {"pocket", "kokoro"}:
+            address = "172.18.0.4"
+        else:
+            address = "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+def test_speech_upstream_rewrites_approved_local_speech(monkeypatch):
+    _compose_dns(monkeypatch)
+    monkeypatch.setenv("SPEECH_UPSTREAM", "7508=http://pocket:7508, 8880=http://kokoro:8880")
+    assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://pocket:7508"
+    assert approved_speech_base("http://localhost:7508", "pocket") == "http://pocket:7508"
+    assert approved_speech_base("http://[::1]:7508", "pocket") == "http://pocket:7508"
+    assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://pocket:7508"
+    assert approved_speech_base("http://127.0.0.1:8880/v1", "kokoro") == "http://kokoro:8880"
+    assert approved_speech_base("https://api.openai.com/v1", "openai") == "https://api.openai.com:443"
+
+
+def test_speech_upstream_leaves_other_ports_alone(monkeypatch):
+    _compose_dns(monkeypatch)
+    monkeypatch.setenv("SPEECH_UPSTREAM", "8880=http://kokoro:8880")
+    assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://127.0.0.1:7508"
+
+
+def test_speech_upstream_refuses_metadata(monkeypatch):
+    monkeypatch.setenv("SPEECH_UPSTREAM", "7508=http://169.254.169.254:7508")
+    with pytest.raises(HTTPException) as caught:
+        approved_speech_base("http://127.0.0.1:7508", "pocket")
+    assert caught.value.status_code == 400
+    assert caught.value.detail == "That address is never forwarded to."
+
+
+def test_speech_upstream_rejects_a_bad_entry(monkeypatch):
+    monkeypatch.setenv("SPEECH_UPSTREAM", "pocket")
+    with pytest.raises(HTTPException) as caught:
+        approved_speech_base("http://127.0.0.1:7508", "pocket")
+    assert caught.value.status_code == 500

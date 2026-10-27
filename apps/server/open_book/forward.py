@@ -81,6 +81,9 @@ def approved_speech_base(url: str, vendor: str) -> str:
     if _builtin_speech(target, vendor):
         if not _is_local_loopback(target):
             _reject_blocked_resolution(target)
+        upstream = _speech_upstream(target.port)
+        if upstream is not None:
+            return upstream
         return target.origin
     if _allow_hit(target, "SPEECH_ALLOW", None):
         _reject_blocked_resolution(target)
@@ -187,6 +190,37 @@ def _bare_loopback(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
     return ip in _LOOPBACK
+
+
+def _speech_upstream(port: int) -> str | None:
+    """Dial the operator's Compose service for an already approved local speech port.
+
+    `SPEECH_UPSTREAM` is `port=url` pairs, for example
+    `7508=http://pocket:7508,8880=http://kokoro:8880`. The caller still has to
+    name loopback or the built-in LAN host. A caller cannot choose this origin.
+    """
+    raw = os.environ.get("SPEECH_UPSTREAM", "")
+    if not raw.strip():
+        return None
+    chosen: str | None = None
+    for part in raw.split(","):
+        entry = part.strip()
+        if not entry:
+            continue
+        port_text, sep, url = entry.partition("=")
+        if sep != "=" or not port_text.isdigit() or not url:
+            raise HTTPException(500, f"SPEECH_UPSTREAM has an invalid entry: {entry}")
+        mapped = int(port_text)
+        if not 1 <= mapped <= 65535:
+            raise HTTPException(500, f"SPEECH_UPSTREAM has an invalid entry: {entry}")
+        try:
+            upstream = _parse_base(url)
+        except HTTPException as exc:
+            raise HTTPException(500, f"SPEECH_UPSTREAM has an invalid entry: {entry}") from exc
+        _reject_blocked_resolution(upstream)
+        if mapped == port:
+            chosen = upstream.origin
+    return chosen
 
 
 def _allow_hit(target: Target, env_name: str, default_port: int | None) -> bool:

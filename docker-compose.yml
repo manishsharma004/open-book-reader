@@ -1,0 +1,112 @@
+# Open Book Reader.
+# Start it with scripts/run.sh --torch-backend cpu|cuda|rocm.
+# That script enables one Pocket profile. web and kokoro always start.
+# Kokoro is the CPU image and is not published. Pocket is published on 7508.
+# The browser still calls only http://localhost:7507.
+
+name: open-book-reader
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    image: open-book-reader-web:local
+    ports:
+      - "7507:7507"
+    environment:
+      SPEECH_UPSTREAM: "7508=http://pocket:7508,8880=http://kokoro:8880"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - kokoro
+    restart: unless-stopped
+    networks:
+      - app
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0
+    restart: unless-stopped
+    expose:
+      - "8880"
+    networks:
+      - app
+
+  pocket:
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: docker/pocket.Dockerfile
+      args:
+        TORCH_BACKEND: cpu
+    image: open-book-reader-pocket:cpu
+    ports:
+      - "7508:7508"
+    environment: &pocket-env
+      POCKET_HOST: "0.0.0.0"
+      POCKET_PORT: "7508"
+      POCKET_LANGUAGE: ${POCKET_LANGUAGE:-english_18m_refl_2026-10}
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    restart: unless-stopped
+    networks:
+      app:
+        aliases:
+          - pocket
+
+  pocket-cuda:
+    profiles: ["cuda"]
+    build:
+      context: .
+      dockerfile: docker/pocket.Dockerfile
+      args:
+        TORCH_BACKEND: cuda
+    image: open-book-reader-pocket:cuda
+    ports:
+      - "7508:7508"
+    environment:
+      <<: *pocket-env
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      app:
+        aliases:
+          - pocket
+
+  pocket-rocm:
+    profiles: ["rocm"]
+    build:
+      context: .
+      dockerfile: docker/pocket.Dockerfile
+      args:
+        TORCH_BACKEND: rocm
+    image: open-book-reader-pocket:rocm
+    ports:
+      - "7508:7508"
+    environment:
+      <<: *pocket-env
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    ipc: host
+    shm_size: "2gb"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    restart: unless-stopped
+    networks:
+      app:
+        aliases:
+          - pocket
+
+networks:
+  app:

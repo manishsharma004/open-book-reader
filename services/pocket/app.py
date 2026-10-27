@@ -110,17 +110,38 @@ class PocketSynthesizer:
         return wav_from_float([float(sample) for sample in channel.tolist()], int(self.model.sample_rate))
 
 
-def torch_device() -> str:
-    """Use the RX 5500M when ROCm can see it and about a gigabyte is free."""
-    import torch
+GPU_FREE_BYTES = 1024 * 1024 * 1024
 
+
+def choose_torch_device(
+    cuda_available: bool,
+    free_bytes: int | None,
+    minimum_free: int = GPU_FREE_BYTES,
+) -> str:
+    """Pick `cuda` when a CUDA or ROCm card is visible and has enough free memory.
+
+    ROCm reports the card through the CUDA API. Both wheels use the device string `cuda`.
+    """
+    if not cuda_available or free_bytes is None or free_bytes < minimum_free:
+        return "cpu"
+    return "cuda"
+
+
+def torch_device() -> str:
+    """Use a CUDA or ROCm GPU when one is visible and about a gigabyte is free."""
     choice = os.environ.get("POCKET_DEVICE", "").strip().lower()
     if choice:
         return choice
-    if not (getattr(torch.version, "hip", None) and torch.cuda.is_available()):
+    import torch
+
+    if not torch.cuda.is_available():
         return "cpu"
-    free, total = torch.cuda.mem_get_info()
-    if free < 1024 * 1024 * 1024:
+    try:
+        free, total = torch.cuda.mem_get_info()
+    except Exception:
+        logger.warning("pocket staying on cpu because gpu memory could not be read")
+        return "cpu"
+    if choose_torch_device(True, free) == "cpu":
         logger.warning(
             "pocket staying on cpu because the gpu has %s MB free of %s MB",
             free // (1024 * 1024),
@@ -265,9 +286,17 @@ def _read_upload(upload: UploadFile | None) -> tuple[str, bytes] | None:
     return suffix, sample
 
 
+def drop_blank_tokens() -> None:
+    """An empty Compose value must not override a missing Hugging Face login."""
+    for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        if os.environ.get(name) == "":
+            del os.environ[name]
+
+
 def main() -> None:
     import uvicorn
 
+    drop_blank_tokens()
     language = os.environ.get("POCKET_LANGUAGE", DEFAULT_LANGUAGE).strip() or DEFAULT_LANGUAGE
     host = os.environ.get("POCKET_HOST", "0.0.0.0").strip() or "0.0.0.0"
     port = int(os.environ.get("POCKET_PORT", "7508"))

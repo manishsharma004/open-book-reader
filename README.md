@@ -12,6 +12,13 @@ cd ../server && python3 -m venv .venv && .venv/bin/pip install -r requirements.t
 
 Open `http://localhost:7507`. Use a free port from 7500 to 7510. The server reads `apps/web/build` from disk, so a web-only change needs `npm run build` and does not need a server restart.
 
+The same app, Kokoro, and Pocket TTS also start from Docker. `scripts/run.sh --help` lists the GPU requirements. `--torch-backend` chooses the PyTorch wheel in the Pocket image: `cpu`, `cuda`, or `rocm`. CUDA reserves the NVIDIA GPUs. ROCm passes `/dev/kfd` and `/dev/dri`. Pocket uses the GPU when that card has at least 1 GB free.
+
+```bash
+scripts/run.sh --torch-backend cpu
+HF_TOKEN=hf_... scripts/run.sh --torch-backend rocm
+```
+
 Pocket TTS is a second process. It listens on port 7508. The app server forwards vendor `pocket` to it. Do not install `services/pocket/requirements.txt` on a machine that already has the ROCm torch wheel: that file does not pin torch.
 
 ```bash
