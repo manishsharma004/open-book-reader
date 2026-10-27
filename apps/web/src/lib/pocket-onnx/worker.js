@@ -6,7 +6,7 @@
 // language + quantization, plus the voice encoder only when cloning is enabled.
 
 import { SentencePieceTokenizer } from "./tokenizer.js";
-import { parseNpyFloat32, parseVoiceStatesBin } from "./binary.js";
+import { parseNpyFloat32, parseSafetensors, parseVoiceStatesBin } from "./binary.js";
 import { pocketDeviceLabel, pocketDeviceProviders } from "./providers.js";
 
 let ort = null;
@@ -53,6 +53,7 @@ const IDB_NAME = "open-book-pocket-onnx";
 const IDB_STORE = "files";
 
 function modelUrl(language, filename) {
+    if (config.bundleBaseUrl) return `${config.bundleBaseUrl}/${filename}`;
     return `${config.modelBaseUrl}/${language}/${filename}`;
 }
 
@@ -454,8 +455,23 @@ async function loadOrt() {
     precomputeFlowBuffers();
 }
 
+async function modelBytes(language, name, onProgress) {
+    const quantized = `${name}_int8.onnx`;
+    const full = `${name}.onnx`;
+    const names = config.quantized ? [quantized, full] : [full, quantized];
+    let last = null;
+    for (const filename of names) {
+        try {
+            return await fetchWithProgress(modelUrl(language, filename), name, onProgress);
+        } catch (error) {
+            last = error;
+        }
+    }
+    throw last instanceof Error ? last : new Error(`Could not download ${name}.`);
+}
+
 async function createSession(language, name, onProgress) {
-    const bytes = await fetchWithProgress(modelUrl(language, stem(name)), name, onProgress);
+    const bytes = await modelBytes(language, name, onProgress);
     const order = pocketDeviceProviders(Boolean(config.webnn));
     const attempts = pinnedProvider
         ? [pinnedProvider, ...order.filter((provider) => pocketDeviceLabel(provider) !== pocketDeviceLabel(pinnedProvider))]
@@ -542,7 +558,7 @@ async function init(cfg) {
             language,
             sampleRate,
             samplesPerFrame,
-            predefinedVoices: bundleMetadata.predefined_voices || [],
+            predefinedVoices: listedVoices(),
         },
     });
 }
@@ -561,9 +577,34 @@ async function ensureVoicesBin() {
     predefinedVoiceRecords = parseVoiceStatesBin(bytes.buffer);
 }
 
+function listedVoices() {
+    const names = [...(bundleMetadata?.predefined_voices || []), ...Object.keys(config.voiceFiles || {})];
+    return [...new Set(names)];
+}
+
+async function loadVoiceFile(name) {
+    const url = config.voiceFiles?.[name];
+    if (!url) return null;
+    const bytes = await fetchWithProgress(url, name, (progress) => post({ type: "progress", ...progress }));
+    const ref = `builtin:${name}`;
+    if (url.split("?")[0].toLowerCase().endsWith(".npy")) {
+        voiceStateCache.set(ref, await buildVoiceConditionedState(parseNpyFloat32(bytes.buffer)));
+    } else {
+        voiceStateCache.set(ref, stateFromVoiceRecord(parseSafetensors(bytes.buffer)));
+    }
+    return ref;
+}
+
 async function loadBuiltinVoice(name) {
+    if (voiceStateCache.has(`builtin:${name}`)) return `builtin:${name}`;
+    const fromFile = await loadVoiceFile(name);
+    if (fromFile) return fromFile;
     await ensureVoicesBin();
-    if (!predefinedVoiceRecords[name]) throw new Error(`Unknown built-in voice: ${name}`);
+    if (!predefinedVoiceRecords[name]) {
+        const known = listedVoices();
+        const extra = known.length ? ` This bundle includes ${known.join(", ")}.` : "";
+        throw new Error(`Unknown built-in voice: ${name}.${extra}`);
+    }
     const ref = `builtin:${name}`;
     if (!voiceStateCache.has(ref)) {
         voiceStateCache.set(ref, stateFromVoiceRecord(predefinedVoiceRecords[name]));

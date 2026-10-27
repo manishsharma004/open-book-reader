@@ -1,13 +1,12 @@
 <script lang="ts">
-	import AppHeader from '#lib/components/app-header.svelte';
+	import PaletteSwatches from '#lib/components/palette-swatches.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { EMOTIONS, applyTtsVendorDefaults, saveVoiceSample, voiceSample, type TtsVendor } from '#lib/settings.js';
-	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
-	import type { Palette } from '#lib/theme.js';
+	import { commitSettings, removeVoiceSample, settingsState } from '#lib/settings-store.svelte.js';
 	import { appServer, type AppServerState } from '#lib/app-server.js';
 	import { cloneVoice, complete, speak } from '#lib/vendor.js';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
@@ -20,9 +19,8 @@
 	let emotionResult = $state('');
 	let speechResult = $state('');
 	let cloneResult = $state('');
-	let sampleInput = $state<HTMLInputElement | null>(null);
 
-	const field = 'border-input bg-background h-8 w-full rounded-lg border px-2.5 text-sm';
+	const field = 'border-input bg-background h-11 w-full rounded-lg border px-3 text-base';
 	const settings = $derived(settingsState.current);
 
 	$effect(() => {
@@ -92,14 +90,6 @@
 		}
 	}
 
-	async function onSample(event: Event) {
-		const file = (event.currentTarget as HTMLInputElement).files?.[0];
-		if (!file || !settings) return;
-		await saveVoiceSample(settings, file, file.name);
-		await commitSettings();
-		cloneResult = `Saved ${file.name} in this browser.`;
-	}
-
 	async function saveRecording(blob: Blob, name: string) {
 		if (!settings) return;
 		await saveVoiceSample(settings, blob, name);
@@ -109,7 +99,6 @@
 
 	async function removeSample() {
 		await removeVoiceSample();
-		if (sampleInput) sampleInput.value = '';
 		cloneResult = 'Sample removed. Later speech uses the voice id.';
 	}
 
@@ -137,8 +126,6 @@
 	}
 </script>
 
-<AppHeader />
-
 <main class="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-8">
 	<div class="flex flex-wrap items-center gap-3">
 		<h1 class="text-3xl font-semibold tracking-tight">Settings</h1>
@@ -153,23 +140,12 @@
 		<Card.Root>
 			<Card.Header>
 				<Card.Title>Reading</Card.Title>
-				<Card.Description>Ink is the default palette. Lamp is the warm paper palette.</Card.Description>
+				<Card.Description>Ink is the default. Lamp, Moss, Tide, and Dusk are the other papers. Day, Night, and System sit with them.</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-4 sm:grid-cols-2">
-				<div class="grid gap-1.5">
-					<Label>Palette</Label>
-					<select class={field} bind:value={settings.palette} onchange={() => setPalette(settings.palette as Palette)}>
-						<option value="ink">Ink</option>
-						<option value="lamp">Lamp</option>
-					</select>
-				</div>
-				<div class="grid gap-1.5">
-					<Label>Day and night</Label>
-					<select class={field} bind:value={settings.theme} onchange={() => setTheme(settings.theme)}>
-						<option value="system">System</option>
-						<option value="day">Day</option>
-						<option value="night">Night</option>
-					</select>
+				<div class="grid gap-1.5 sm:col-span-2">
+					<Label>Theme</Label>
+					<PaletteSwatches />
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="speech-pace">Pace</Label>
@@ -259,7 +235,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. On-device Pocket TTS runs the published English ONNX bundle in this browser: WebNN uses the phone NPU when the page is a secure context and the browser exposes it, and otherwise the same graph runs in WebAssembly. The first clip downloads about 125 MB and keeps it here. The text is not sent to a server. Choosing Pocket points this form at port 7508. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. On-device Pocket TTS loads an ONNX bundle in this browser. The base URL can be a Hugging Face repo, a folder in that repo, or the folder that contains bundle.json. Quantized `*_int8.onnx` files are used when that folder has them, and `.safetensors` or `.npy` voice embeddings in the repo join the built-in voices. WebNN uses the phone NPU when the page is a secure context and the browser exposes it, and otherwise the same graph runs in WebAssembly. The text is not sent to a server. Choosing Pocket points this form at port 7508. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -290,7 +266,16 @@
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="tts-url">Base URL</Label>
-					<Input id="tts-url" bind:value={settings.tts.baseUrl} placeholder="http://127.0.0.1:7508" />
+					<Input
+						id="tts-url"
+						bind:value={settings.tts.baseUrl}
+						placeholder={settings.tts.vendor === 'pocket-device' ? 'https://huggingface.co/org/pocket-tts-onnx' : 'http://127.0.0.1:7508'}
+					/>
+					{#if settings.tts.vendor === 'pocket-device'}
+						<p class="text-muted-foreground text-xs">
+							Model is the language folder, such as english_2026-04, when the address is the repo or an onnx folder. Leave the address pointing at the language folder when the files already sit there. Voice id can be a built-in name or an embedding file name from that repo.
+						</p>
+					{/if}
 				</div>
 				<div class="grid gap-1.5 sm:grid-cols-2">
 					<div class="grid gap-1.5">
@@ -323,10 +308,7 @@
 					<p class="text-muted-foreground text-xs">
 						The sample stays in this browser. Record up to 12 seconds, or choose a file. Pocket TTS and On-device Pocket TTS use it as the reference clip. Use a clean few seconds of a voice you have permission to clone. Kokoro does not use it.
 					</p>
-					<div class="flex flex-wrap items-center gap-2">
-						<VoiceRecorder onsave={saveRecording} />
-						<Input type="file" accept="audio/*" bind:ref={sampleInput} onchange={onSample} />
-					</div>
+					<VoiceRecorder onsave={saveRecording} />
 					{#if settings.cloneBlobId || settings.cloneFileName}
 						<div class="flex flex-wrap items-center gap-2" data-voice-sample>
 							<p class="text-sm">Saved sample: {settings.cloneFileName || 'audio in this browser'}</p>
@@ -345,7 +327,11 @@
 			</Card.Content>
 		</Card.Root>
 	{:else}
-		<p class="text-muted-foreground text-sm">Loading settings…</p>
+		<div class="grid gap-3" data-settings-loader aria-busy="true">
+			{#each [0, 1, 2] as item (item)}
+				<div class="bg-card border-border h-28 animate-pulse rounded-xl border"></div>
+			{/each}
+		</div>
 	{/if}
 
 	<Card.Root>

@@ -2,7 +2,6 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import UploadIcon from '@lucide/svelte/icons/upload';
-	import AppHeader from '#lib/components/app-header.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -15,6 +14,7 @@
 	import { isPasswordError } from '#lib/pdf.js';
 
 	let books = $state<Book[]>([]);
+	let loaded = $state(false);
 	let covers = $state<Record<string, string>>({});
 	let storage = $state<{ used: number; quota: number } | null>(null);
 	let open = $state(false);
@@ -29,18 +29,22 @@
 	let fileInput = $state<HTMLInputElement | null>(null);
 
 	async function refresh() {
-		books = await listBooks();
-		for (const url of Object.values(covers)) URL.revokeObjectURL(url);
-		const next: Record<string, string> = {};
-		for (const book of books) {
-			if (!book.coverId) continue;
-			const blob = await getBlob(book.coverId);
-			if (blob) next[book.id] = URL.createObjectURL(blob);
-		}
-		covers = next;
-		if (navigator.storage?.estimate) {
-			const estimate = await navigator.storage.estimate();
-			storage = { used: estimate.usage ?? 0, quota: estimate.quota ?? 0 };
+		try {
+			books = await listBooks();
+			for (const url of Object.values(covers)) URL.revokeObjectURL(url);
+			const next: Record<string, string> = {};
+			for (const book of books) {
+				if (!book.coverId) continue;
+				const blob = await getBlob(book.coverId);
+				if (blob) next[book.id] = URL.createObjectURL(blob);
+			}
+			covers = next;
+			if (navigator.storage?.estimate) {
+				const estimate = await navigator.storage.estimate();
+				storage = { used: estimate.usage ?? 0, quota: estimate.quota ?? 0 };
+			}
+		} finally {
+			loaded = true;
 		}
 	}
 
@@ -160,8 +164,6 @@
 	}
 </script>
 
-<AppHeader />
-
 <main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8">
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
@@ -176,7 +178,19 @@
 		</div>
 	</div>
 
-	{#if books.length === 0}
+	{#if !loaded}
+		<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-library-loader aria-busy="true">
+			{#each [0, 1, 2] as item (item)}
+				<li class="bg-card border-border overflow-hidden rounded-xl border">
+					<div class="bg-muted h-64 animate-pulse"></div>
+					<div class="grid gap-2 p-4">
+						<div class="bg-muted h-4 w-2/3 animate-pulse rounded"></div>
+						<div class="bg-muted h-3 w-1/3 animate-pulse rounded"></div>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	{:else if books.length === 0}
 		<Card.Root class="border-dashed">
 			<Card.Header>
 				<Card.Title>No books yet</Card.Title>

@@ -9,7 +9,7 @@ Status: discussion. Part of the design in [`DESIGN.md`](https://github.com/manis
 - **Degrade, don't stop.** Missing a text model, a speech model, word timings, or the network changes what the reader gets, and the UI says what changed. It does not block listening when listening is possible.
 - **The device holds the only copy.** The UI makes storage, persistence, and export visible, because losing browser data loses the library.
 - **Costs are visible before they are spent.** Before large model work, the UI shows character and token counts for the reader's vendor.
-- **The chrome looks like a book, not a dashboard.** The default palette is Ink: cool paper and ink blue by day, blue-black at night. Lamp, the warm paper palette, stays available. Type and the highlight treatment are in `DESIGN.md`.
+- **The chrome looks like a book, not a dashboard.** The default palette is Ink: cool paper and ink blue by day, blue-black at night. Lamp, Moss, Tide, and Dusk are the rest of the collection, each with Day, Night, and System. Library, Open books, and Settings share a sidebar. The reader keeps its own bar and a Theme control. Type and the highlight treatment are in `DESIGN.md`.
 
 ## 2. Screen map
 
@@ -230,6 +230,8 @@ Headphone and lock-screen buttons use the Media Session API: play, pause, seek b
 - Processing a large scanned book on a phone is slow and pauses in the background. The add-book screen says so for scanned PDFs over 100 pages and suggests processing on a computer, then exporting and importing the book.
 - The install prompt (Add to Home Screen) is shown after the first book is Ready, and earlier on Safari because of storage eviction.
 - Touch targets at least 44 by 44 CSS pixels.
+- **Record sample** opens a panel as soon as it is pressed, with a level meter while the microphone is live. On `http://` other than localhost, Chrome on a phone does not show the microphone permission sheet. The panel says so and offers an audio file. The file stays in this browser.
+- On-device Pocket TTS accepts a Hugging Face repo, a folder in that repo, or the folder that already contains `bundle.json`. The language name is the folder when the address is the repo or an `onnx` folder. Quantized `*_int8.onnx` files are preferred when present. `.safetensors` and `.npy` files under `embeddings/` or `voices/` in that repo are extra voice ids. A saved sample is still the reference when one is stored.
 
 ## 8. Things deliberately left out of the first version
 

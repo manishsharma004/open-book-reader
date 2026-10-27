@@ -130,7 +130,7 @@ export function voiceCatalog(
 	}
 	if (vendor === 'pocket-device') {
 		return {
-			note: 'Built-in voices in the on-device ONNX bundle. alba is the default. A saved sample is used instead of this id.',
+			note: 'Suggestions for the published English bundle. A custom repo can add more names from its embeddings. A saved sample is used instead of this id.',
 			items: POCKET_DEVICE_VOICE_IDS.map((id) => ({ id, label: id }))
 		};
 	}

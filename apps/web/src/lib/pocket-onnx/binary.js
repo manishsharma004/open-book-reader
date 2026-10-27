@@ -90,3 +90,53 @@ export function parseVoiceStatesBin(buffer) {
 
     return voices;
 }
+
+function float16ToFloat32(source) {
+    const out = new Float32Array(source.length);
+    for (let index = 0; index < source.length; index++) {
+        const value = source[index];
+        const sign = (value & 0x8000) >> 15;
+        const exponent = (value & 0x7c00) >> 10;
+        const fraction = value & 0x03ff;
+        let magnitude;
+        if (exponent === 0) magnitude = (fraction / 1024) * 2 ** -14;
+        else if (exponent === 31) magnitude = fraction ? NaN : Infinity;
+        else magnitude = (1 + fraction / 1024) * 2 ** (exponent - 15);
+        out[index] = sign ? -magnitude : magnitude;
+    }
+    return out;
+}
+
+/** Voice states exported by Pocket (`module/tensor` keys) and plain embedding files. */
+export function parseSafetensors(buffer) {
+    const view = new DataView(buffer);
+    const headerLength = Number(view.getBigUint64(0, true));
+    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 8, headerLength)));
+    const dataStart = 8 + headerLength;
+    const tensors = {};
+    for (const [key, meta] of Object.entries(header)) {
+        if (key === "__metadata__" || !meta || !meta.data_offsets) continue;
+        const start = dataStart + meta.data_offsets[0];
+        const end = dataStart + meta.data_offsets[1];
+        const bytes = buffer.slice(start, end);
+        let data;
+        let dtype;
+        if (meta.dtype === "F32") {
+            data = new Float32Array(bytes);
+            dtype = "float32";
+        } else if (meta.dtype === "F16") {
+            data = float16ToFloat32(new Uint16Array(bytes));
+            dtype = "float32";
+        } else if (meta.dtype === "I64") {
+            data = new BigInt64Array(bytes);
+            dtype = "int64";
+        } else if (meta.dtype === "BOOL" || meta.dtype === "U8") {
+            data = new Uint8Array(bytes);
+            dtype = "bool";
+        } else {
+            throw new Error(`Unsupported safetensors dtype: ${meta.dtype}`);
+        }
+        tensors[key] = { data, shape: meta.shape, dtype };
+    }
+    return tensors;
+}

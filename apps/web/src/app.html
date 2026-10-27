@@ -12,7 +12,9 @@
 						mode === 'night' ||
 						(mode !== 'day' && matchMedia('(prefers-color-scheme: dark)').matches);
 					if (dark) document.documentElement.classList.add('dark');
-					var palette = localStorage.getItem('obr-palette') === 'lamp' ? 'lamp' : 'ink';
+					var names = { ink: 1, lamp: 1, moss: 1, tide: 1, dusk: 1 };
+					var stored = localStorage.getItem('obr-palette');
+					var palette = names[stored] ? stored : 'ink';
 					document.documentElement.setAttribute('data-palette', palette);
 				} catch (e) {}
 			})();

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import AppHeader from '#lib/components/app-header.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
@@ -108,8 +107,6 @@
 	}
 </script>
 
-<AppHeader />
-
 <main class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8" data-open-books data-open-books-mode={catalog || 'loading'} aria-busy={busy === 'search' || !loaded}>
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
@@ -124,7 +121,6 @@
 				{/if}
 			</p>
 		</div>
-		<Button href={resolve('/')} variant="ghost">Library</Button>
 	</div>
 
 	{#if !loaded}
@@ -137,9 +133,10 @@
 	{:else if providers.length === 0}
 		<p class="text-sm">{error || 'Open books need the network. The books already in this browser are still here.'}</p>
 	{:else}
-		<div class="flex flex-wrap gap-2" data-providers>
+		<div class="flex gap-2 overflow-x-auto pb-1" data-providers>
 			{#each providers as item (item.id)}
 				<Button
+					class="shrink-0"
 					variant={item.id === providerId ? 'default' : 'outline'}
 					size="sm"
 					onclick={() => chooseProvider(item.id)}
@@ -168,7 +165,7 @@
 				aria-label="Search"
 			/>
 			<select
-				class="border-input bg-background h-8 rounded-lg border px-2 text-sm"
+				class="border-input bg-background h-11 rounded-lg border px-3 text-base"
 				bind:value={language}
 				aria-label="Language"
 				onchange={() => runSearch(null)}

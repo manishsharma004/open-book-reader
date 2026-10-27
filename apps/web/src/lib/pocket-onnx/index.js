@@ -44,6 +44,8 @@ export class PocketTTS {
             quantized: options.quantized !== false,
             voiceCloning: options.voiceCloning !== false,
             modelBaseUrl: (options.modelBaseUrl || DEFAULT_MODEL_BASE_URL).replace(/\/$/, ""),
+            bundleBaseUrl: options.bundleBaseUrl ? String(options.bundleBaseUrl).replace(/\/$/, "") : "",
+            voiceFiles: options.voiceFiles && typeof options.voiceFiles === "object" ? options.voiceFiles : {},
             ortBaseUrl: options.ortBaseUrl || DEFAULT_ORT_BASE_URL,
             voicesUrl: options.voicesUrl || null,
             maxThreads: options.maxThreads || 8,

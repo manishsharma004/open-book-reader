@@ -1,5 +1,18 @@
 export type ThemeMode = 'day' | 'night' | 'system';
-export type Palette = 'ink' | 'lamp';
+
+export const PALETTES = [
+	{ id: 'ink', label: 'Ink', hint: 'Cool paper' },
+	{ id: 'lamp', label: 'Lamp', hint: 'Warm paper' },
+	{ id: 'moss', label: 'Moss', hint: 'Green paper' },
+	{ id: 'tide', label: 'Tide', hint: 'Sea paper' },
+	{ id: 'dusk', label: 'Dusk', hint: 'Violet paper' }
+] as const;
+
+export type Palette = (typeof PALETTES)[number]['id'];
+
+export function isPalette(value: unknown): value is Palette {
+	return PALETTES.some((item) => item.id === value);
+}
 
 const THEME_KEY = 'obr-theme';
 const PALETTE_KEY = 'obr-palette';
@@ -13,7 +26,8 @@ export function readTheme(): ThemeMode {
 
 export function readPalette(): Palette {
 	if (typeof localStorage === 'undefined') return 'ink';
-	return localStorage.getItem(PALETTE_KEY) === 'lamp' ? 'lamp' : 'ink';
+	const value = localStorage.getItem(PALETTE_KEY);
+	return isPalette(value) ? value : 'ink';
 }
 
 export function applyTheme(mode: ThemeMode) {

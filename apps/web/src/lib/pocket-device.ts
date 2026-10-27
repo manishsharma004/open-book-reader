@@ -2,6 +2,7 @@ import { logPipeline } from '#lib/pipeline.svelte.js';
 import { chunksToWavBlob, PocketTTS } from '#lib/pocket-onnx/index.js';
 import { pocketDeviceKind, pocketDeviceTitle } from '#lib/pocket-onnx/providers.js';
 import { setPocketRunDevice } from '#lib/pocket-run.svelte.js';
+import { locatePocketBundle } from '#lib/pocket-bundle.js';
 import { POCKET_DEVICE_MODEL, POCKET_ONNX_BASE, POCKET_VOICE, type TtsSettings } from '#lib/settings.js';
 import type { SpeechResult } from '#lib/vendor.js';
 
@@ -59,7 +60,10 @@ function noteProgress(info: { type?: string; label?: string; loaded?: number; to
 async function engineFor(settings: TtsSettings, cloning: boolean): Promise<Engine> {
 	const model = settings.model || POCKET_DEVICE_MODEL;
 	const base = settings.baseUrl || POCKET_ONNX_BASE;
-	const key = `${model}:${cloning}:${base}`;
+	noteProgress({ type: 'status', status: 'finding the bundle' });
+	const located = await locatePocketBundle(base, model);
+	const voices = Object.keys(located.voiceFiles).sort().join(',');
+	const key = `${located.bundleBaseUrl}:${cloning}:${voices}`;
 	if (engine && engineKey === key && engine.ready) return engine;
 	engine?.destroy();
 	voiceKey = '';
@@ -69,6 +73,8 @@ async function engineFor(settings: TtsSettings, cloning: boolean): Promise<Engin
 		quantized: true,
 		voiceCloning: cloning,
 		modelBaseUrl: base,
+		bundleBaseUrl: located.bundleBaseUrl,
+		voiceFiles: located.voiceFiles,
 		webnn: true
 	}) as Engine;
 	await next.load((info) => noteProgress(info));

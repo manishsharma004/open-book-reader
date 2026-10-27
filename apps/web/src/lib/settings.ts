@@ -1,9 +1,8 @@
 import { deleteBlob, getBlob, putBlob, readAppRecord, writeAppRecord } from '#lib/db.js';
 import { openBooksBase } from '#lib/open-books-api.js';
-import { pocketDeviceVoice } from '#lib/voice-ids.js';
 import { SPEECH_CHUNK_WORDS, speechPace } from '#lib/speech-clips.js';
 import { randomId } from '#lib/hash.js';
-import { applyPalette, applyTheme, readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
+import { applyPalette, applyTheme, isPalette, readPalette, readTheme, type Palette, type ThemeMode } from '#lib/theme.js';
 
 export const EMOTIONS = [
 	'neutral',
@@ -139,7 +138,7 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 	}
 	return {
 		theme: theme === 'day' || theme === 'night' || theme === 'system' ? theme : base.theme,
-		palette: palette === 'lamp' || palette === 'ink' ? palette : base.palette,
+		palette: isPalette(palette) ? palette : base.palette,
 		lookahead,
 		speechPace: speechPace(raw.speechPace),
 		ocrLanguage: typeof raw.ocrLanguage === 'string' && raw.ocrLanguage ? raw.ocrLanguage : 'eng',
@@ -157,13 +156,23 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 			apiKey: typeof ttsRaw.apiKey === 'string' ? ttsRaw.apiKey : '',
 			voice:
 				vendorName === 'pocket-device'
-					? pocketDeviceVoice(typeof ttsRaw.voice === 'string' ? ttsRaw.voice : '')
+					? voiceName(ttsRaw.voice, POCKET_VOICE)
 					: typeof ttsRaw.voice === 'string'
 						? ttsRaw.voice
 						: base.tts.voice
 		},
 		openBooksUrl: openBooksBase(typeof raw.openBooksUrl === 'string' ? raw.openBooksUrl : '')
 	};
+}
+
+function voiceName(value: unknown, fallback: string) {
+	if (typeof value !== 'string') return fallback;
+	const cleaned = value.trim();
+	return /^[A-Za-z0-9_.-]{1,80}$/.test(cleaned) ? cleaned : fallback;
+}
+
+function looksLikeOnDeviceBundle(url: string) {
+	return url.includes('huggingface.co') || url.includes('/onnx') || url.endsWith('bundle.json');
 }
 
 function speechUrl(value: string) {
@@ -195,8 +204,8 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 		if (!tts.model || tts.model === 'kokoro' || tts.model === POCKET_MODEL || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
 			tts.model = POCKET_DEVICE_MODEL;
 		}
-		tts.voice = pocketDeviceVoice(tts.voice);
-		if (!tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = POCKET_ONNX_BASE;
+		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
+		if (!looksLikeOnDeviceBundle(tts.baseUrl)) tts.baseUrl = POCKET_ONNX_BASE;
 	}
 	if (tts.vendor === 'pocket' && previous === 'pocket-device') {
 		if (tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;

@@ -42,7 +42,14 @@ test('choosing on-device pocket points at the public onnx bundle', () => {
 	const saved = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'alba', baseUrl: POCKET_ONNX_BASE } });
 	assert.equal(saved.tts.vendor, 'pocket-device');
 	const fromServer = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'anna', baseUrl: POCKET_ONNX_BASE } });
-	assert.equal(fromServer.tts.voice, 'alba');
+	assert.equal(fromServer.tts.voice, 'anna');
+	const custom = defaultSettings();
+	custom.tts.baseUrl = 'https://huggingface.co/KevinAHM/pocket-tts-onnx/tree/main/onnx';
+	custom.tts.model = 'german';
+	custom.tts.vendor = 'pocket-device';
+	applyTtsVendorDefaults(custom.tts, 'kokoro');
+	assert.equal(custom.tts.baseUrl, 'https://huggingface.co/KevinAHM/pocket-tts-onnx/tree/main/onnx');
+	assert.equal(custom.tts.model, 'german');
 	const kept = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'marius', baseUrl: POCKET_ONNX_BASE } });
 	assert.equal(kept.tts.voice, 'marius');
 });

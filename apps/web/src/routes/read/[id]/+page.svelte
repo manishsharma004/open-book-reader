@@ -6,6 +6,7 @@
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
+	import PaletteSwatches from '#lib/components/palette-swatches.svelte';
 	import PocketDeviceBadge from '#lib/components/pocket-device-badge.svelte';
 	import PipelinePanel from '#lib/components/pipeline-panel.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -1249,6 +1250,12 @@
 	{/if}
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href={resolve('/')} variant="ghost" size="sm">Library</Button>
+		<details class="relative">
+			<summary class="hover:bg-accent h-8 cursor-pointer list-none rounded-lg px-2.5 text-sm leading-8">Theme</summary>
+			<div class="border-border bg-card absolute top-10 left-0 z-30 w-64 rounded-xl border p-3 shadow-lg">
+				<PaletteSwatches />
+			</div>
+		</details>
 		{#if chapters.length > 0}
 			<Button variant={outlineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={outlineOpen} data-chapters-toggle onclick={() => setOutline(!outlineOpen)}>
 				Chapters
