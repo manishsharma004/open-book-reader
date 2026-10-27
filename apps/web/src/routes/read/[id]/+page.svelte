@@ -33,13 +33,12 @@
 		type PreparedPage,
 		type SpeechClip
 	} from '#lib/prepare.js';
-	import { commitSettings, removeVoiceSample, setPalette, setTheme, settingsState } from '#lib/settings-store.svelte.js';
+	import { commitSettings, removeVoiceSample, settingsState } from '#lib/settings-store.svelte.js';
 	import { EMOTIONS, saveVoiceSample, type EmotionChoice } from '#lib/settings.js';
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
 	import { companionPage, spreadActive, turnTarget } from '#lib/spread.js';
 	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
-	import type { Palette } from '#lib/theme.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
 	import { onDestroy, untrack } from 'svelte';
 	import { publishChapters, publishPageCount } from '#lib/laid-pages.js';
@@ -1250,7 +1249,7 @@
 	{/if}
 	<header class="border-border flex h-14 shrink-0 items-center gap-2 border-b px-3">
 		<Button href={resolve('/')} variant="ghost" size="sm">Library</Button>
-		<details class="relative">
+		<details class="relative" data-reader-theme>
 			<summary class="hover:bg-accent h-8 cursor-pointer list-none rounded-lg px-2.5 text-sm leading-8">Theme</summary>
 			<div class="border-border bg-card absolute top-10 left-0 z-30 w-64 rounded-xl border p-3 shadow-lg">
 				<PaletteSwatches />
@@ -1277,21 +1276,6 @@
 		>
 			{book ? (companionIndex >= 0 ? `${shownPage + 1}–${companionIndex + 1} / ${book.pageCount}` : `${shownPage + 1} / ${book.pageCount}`) : ''}
 		</span>
-		<select
-			class={field}
-			value={settings?.palette ?? 'ink'}
-			onchange={(event) => setPalette((event.currentTarget as HTMLSelectElement).value as Palette)}
-		>
-			<option value="ink">Ink</option>
-			<option value="lamp">Lamp</option>
-		</select>
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={() => setTheme(document.documentElement.classList.contains('dark') ? 'day' : 'night')}
-		>
-			{document.documentElement.classList.contains('dark') ? 'Day' : 'Night'}
-		</Button>
 		<Button href={resolve('/settings')} variant="ghost" size="sm">Settings</Button>
 	</header>
 
