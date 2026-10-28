@@ -13,7 +13,7 @@ import { spokenClipText } from '#lib/page-roles.js';
 import { clipIndexForWord, speechPace, splitSpeechWords } from '#lib/speech-clips.js';
 import { complete, parseEmotionJson, speak } from '#lib/vendor.js';
 import { getSpeech, putSpeech } from '#lib/db.js';
-import { extendsLaidPages } from '#lib/laid-pages.js';
+import { extendsLaidPages, pageTextStamp } from '#lib/laid-pages.js';
 import { speechCacheId, type SpeechIdentity } from '#lib/speech-cache.js';
 import type { PageText, PageWord } from '#lib/pdf.js';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -116,7 +116,8 @@ export function cacheKey(index: number, settings: AppSettings) {
 			key: settings.tts.apiKey.length,
 			sample: settings.tts.vendor === 'pocket' || settings.tts.vendor === 'pocket-device' || settings.sendSample ? settings.cloneBlobId : null
 		},
-		pace: speechPace(settings.speechPace)
+		pace: speechPace(settings.speechPace),
+		text: pageTextStamp(textPages?.[index] ?? '')
 	});
 }
 

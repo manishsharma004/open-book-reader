@@ -28,6 +28,17 @@ export function publishChapters(previous, next, done) {
 	return kept;
 }
 
+/** Stable identity for one laid page, so an empty page is not reused after its text arrives. */
+export function pageTextStamp(text) {
+	let hash = 2166136261;
+	const value = text ?? '';
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return `${value.length}:${hash >>> 0}`;
+}
+
 /** Page count grows as sections are measured, then settles when the pass finishes. */
 export function publishPageCount(previous, laid, done) {
 	const count = Math.max(laid, 1);

@@ -157,6 +157,7 @@
 				const span = doc.createElement('span');
 				span.className = markClass(slice.word);
 				span.dataset.obWord = String(slice.word);
+				span.dataset.obRole = words[slice.word]?.role ?? 'body';
 				range.surroundContents(span);
 			}
 		}

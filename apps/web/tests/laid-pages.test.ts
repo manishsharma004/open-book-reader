@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chapterCount, extendsLaidPages, publishChapters, publishPageCount } from '../src/lib/laid-pages.js';
+import { chapterCount, extendsLaidPages, pageTextStamp, publishChapters, publishPageCount } from '../src/lib/laid-pages.js';
 
 test('a longer layout keeps the pages already measured', () => {
 	assert.equal(extendsLaidPages(['Cover', 'Chapter I'], ['Cover', 'Chapter I', 'Chapter II']), true);
@@ -21,6 +21,12 @@ test('a partial chapter list never replaces a longer one', () => {
 	assert.deepEqual(publishChapters(first, full, false), full);
 	assert.deepEqual(publishChapters(full, first, true), first);
 	assert.deepEqual(publishChapters(full, [], false), full);
+});
+
+test('an empty laid page is not the same page after its text arrives', () => {
+	assert.equal(pageTextStamp(''), pageTextStamp(''));
+	assert.notEqual(pageTextStamp(''), pageTextStamp('THE ENCHANTED TYPES\n\nOne time a knook became tired'));
+	assert.equal(pageTextStamp('Listen, the poor milliner\'s business will be ruined'), pageTextStamp('Listen, the poor milliner\'s business will be ruined'));
 });
 
 test('page count stays at the furthest page until the pass finishes', () => {

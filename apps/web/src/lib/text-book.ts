@@ -1,4 +1,3 @@
-import { assignWordRoles } from '#lib/page-roles.js';
 import type { PageText, PageWord } from '#lib/pdf.js';
 import { expandLigatures, spokenWordSpans, type SpokenPiece } from '#lib/spoken-text.js';
 
@@ -50,13 +49,15 @@ export function paginateText(source: string): string[] {
 
 export function wordsForPage(pageText: string): PageText {
 	const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
-	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h'>> = [];
+	const pieces: Array<SpokenPiece & Pick<PageWord, 'x' | 'y' | 'w' | 'h' | 'role'>> = [];
 	let y = 720;
 	for (const paragraph of pageText.split(/\n{2,}/)) {
 		const parts = [...segmenter.segment(expandLigatures(paragraph))];
 		const wordCount = parts.filter((part) => part.isWordLike).length;
-		const illustration = /^\[illustration\b/i.test(paragraph.trim());
-		const heading = !illustration && wordCount > 0 && wordCount <= 12 && paragraph.trim().length < 80 && !/[.!?…]$/u.test(paragraph.trim());
+		const title = paragraph.trim();
+		const illustration = /^\[illustration\b/i.test(title);
+		// A closing quote does not make a sentence into a chapter title.
+		const heading = !illustration && wordCount > 0 && wordCount <= 12 && title.length < 80 && !/[.!?…]["'”’)\]]*$/u.test(title);
 		const height = heading ? 22 : 16;
 		let x = 48;
 		for (const part of parts) {
@@ -67,7 +68,8 @@ export function wordsForPage(pageText: string): PageText {
 				x,
 				y,
 				w: width,
-				h: height
+				h: height,
+				role: heading ? 'heading' : 'body'
 			});
 			x += width + 4;
 			if (x > 520) {
@@ -93,10 +95,8 @@ export function wordsForPage(pageText: string): PageText {
 			h: piece.h,
 			charStart,
 			charEnd: text.length,
-			role: 'body'
+			role: piece.role
 		});
 	}
-	const roles = assignWordRoles(words, 760);
-	for (let index = 0; index < words.length; index += 1) words[index].role = roles[index];
 	return { words, text };
 }
