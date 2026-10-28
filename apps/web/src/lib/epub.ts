@@ -356,7 +356,8 @@ export function sectionDocument(book: ParsedEpub, href: string, columnWidth: num
 	// column would stack into one clipped page. The inset here is the page margin instead.
 	const style = `<style id="ob-page">
 		html, body { margin: 0 !important; padding: 0 !important; width: ${frame.frameWidth}px !important; height: ${frame.pageHeight}px !important; overflow: hidden !important; background: #fff; }
-		#ob-flow { box-sizing: content-box; margin: ${frame.padY}px 0 0 ${frame.padX}px !important; width: ${frame.innerWidth}px; height: ${frame.innerHeight}px !important; column-width: ${frame.innerWidth}px !important; column-gap: ${frame.padX * 2}px !important; column-fill: auto !important; }
+		#ob-flow { box-sizing: content-box; margin: ${frame.padY}px 0 0 ${frame.padX}px !important; width: ${frame.innerWidth}px; height: ${frame.innerHeight}px !important; column-width: ${frame.innerWidth}px !important; column-gap: ${frame.padX * 2}px !important; column-fill: auto !important; touch-action: manipulation; user-select: text; -webkit-user-select: text; }
+		#ob-flow * { user-select: text; -webkit-user-select: text; }
 		#ob-flow > :first-child { break-before: auto !important; }
 		img, svg, video { max-width: 100% !important; height: auto; }
 		h1 i, h1 em { break-inside: avoid !important; page-break-inside: avoid !important; }

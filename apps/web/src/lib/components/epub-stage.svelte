@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { chaptersFromToc, openEpub, pageFrame, sectionDocument, type ParsedEpub } from '#lib/epub.js';
+	import { pageFlick } from '#lib/page-flick.js';
 	import { HEADING_TINT, READY_TINT } from '#lib/speech-clips.js';
 	import { wordHits, type MarkPiece } from '#lib/spoken-marks.js';
 	import { joinReadingRuns, type ReadingRun } from '#lib/spoken-text.js';
@@ -166,6 +167,8 @@
 			const target = event.target;
 			// The page lives in the iframe's document, so the parent's Element is a different class.
 			if (!ViewElement || !(target instanceof ViewElement)) return;
+			const chosen = doc.getSelection();
+			if (chosen && !chosen.isCollapsed) return;
 			const span = target.closest('[data-ob-word]');
 			if (!span) return;
 			event.preventDefault();
@@ -445,17 +448,26 @@
 		if (flow) flow.style.transform = `translateX(${shift}px)`;
 		if (columnShift !== shift) columnShift = shift;
 		doc.onpointerdown = (event) => {
+			if (event.button !== 0) return;
 			const startX = event.clientX;
 			const startY = event.clientY;
-			const move = (next: PointerEvent) => {
-				if (Math.abs(next.clientY - startY) > Math.abs(next.clientX - startX)) doc.onpointerup = null;
+			const started = performance.now();
+			let choosing = false;
+			const move = () => {
+				const chosen = doc.getSelection();
+				if (chosen && !chosen.isCollapsed) choosing = true;
 			};
 			doc.onpointerup = (next) => {
 				doc.onpointerup = null;
 				doc.onpointermove = null;
-				const dx = next.clientX - startX;
-				if (Math.abs(dx) < 70) return;
-				onflick(dx < 0 ? 1 : -1);
+				const chosen = doc.getSelection();
+				const direction = pageFlick(
+					next.clientX - startX,
+					next.clientY - startY,
+					performance.now() - started,
+					choosing || Boolean(chosen && !chosen.isCollapsed)
+				);
+				if (direction) onflick(direction);
 			};
 			doc.onpointermove = move;
 		};

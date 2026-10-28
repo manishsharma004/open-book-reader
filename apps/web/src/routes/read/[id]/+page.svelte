@@ -833,6 +833,7 @@
 
 	function onPagePointerDown(event: PointerEvent) {
 		if (turnLock || event.button !== 0 || !book) return;
+		if (event.target instanceof HTMLIFrameElement) return;
 		gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
 	}
 
@@ -1307,7 +1308,7 @@
 			{/if}
 			<div class="relative min-h-0 min-w-0 flex-1">
 				<div
-					class="absolute inset-0 touch-none overflow-hidden"
+					class="absolute inset-0 overflow-hidden {book?.kind === 'epub' ? 'touch-manipulation' : 'touch-none'}"
 					bind:this={stage}
 					role="group"
 					aria-label="Book page"
