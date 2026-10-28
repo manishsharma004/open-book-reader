@@ -134,6 +134,15 @@ export function voiceCatalog(
 			items: POCKET_DEVICE_VOICE_IDS.map((id) => ({ id, label: id }))
 		};
 	}
+	if (vendor === 'lfm') {
+		return {
+			note: 'LFM3 Audio built-in voices. female is the default. This model does not clone, and the model field is the language code.',
+			items: [
+				{ id: 'female', label: 'female' },
+				{ id: 'male', label: 'male' }
+			]
+		};
+	}
 	if (vendor === 'openai') {
 		return {
 			note: 'OpenAI speech voices.',

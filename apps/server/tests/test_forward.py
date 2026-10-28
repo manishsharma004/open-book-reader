@@ -109,6 +109,8 @@ def test_speech_allows_known_hosts_only():
     assert approved_speech_base("http://localhost:7508", "pocket") == "http://localhost:7508"
     assert approved_speech_base("http://[::1]:7508", "pocket") == "http://[::1]:7508"
     assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://127.0.0.1:7508"
+    assert approved_speech_base("http://127.0.0.1:7510", "lfm") == "http://127.0.0.1:7510"
+    assert approved_speech_base("http://127.0.0.1:7510", "lfm") == "http://127.0.0.1:7510"
     for url, vendor in [
         ("http://192.168.1.1:8880/v1", "kokoro"),
         ("http://192.168.1.1:7508", "pocket"),
@@ -116,6 +118,8 @@ def test_speech_allows_known_hosts_only():
         ("http://127.0.0.1:8001", "pocket"),
         ("http://127.0.0.1:8880", "pocket"),
         ("http://127.0.0.1:7508", "kokoro"),
+        ("http://127.0.0.1:7508", "lfm"),
+        ("http://127.0.0.1:7510", "pocket"),
         ("https://127.0.0.1:7508", "pocket"),
         ("http://127.0.0.1:5173/v1", "openai"),
         ("http://127.0.0.1:11434/v1", "kokoro"),

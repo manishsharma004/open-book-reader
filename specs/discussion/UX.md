@@ -231,6 +231,7 @@ Headphone and lock-screen buttons use the Media Session API: play, pause, seek b
 - The install prompt (Add to Home Screen) is shown after the first book is Ready, and earlier on Safari because of storage eviction.
 - Touch targets at least 44 by 44 CSS pixels.
 - **Record sample** opens a panel as soon as it is pressed, with a level meter while the microphone is live. On `http://` other than localhost, Chrome on a phone does not show the microphone permission sheet. The panel says so and offers an audio file. The file stays in this browser.
+- LFM3 Audio is a Settings vendor. Choosing it points the form at port 7510, with language `en` and voice `female` or `male`. The reader speaks through the app server. A saved sample is not sent. Start the weights with `scripts/lfm.sh`.
 - On-device Pocket TTS accepts a Hugging Face repo, a folder in that repo, or the folder that already contains `bundle.json`. The language name is the folder when the address is the repo or an `onnx` folder. Quantized `*_int8.onnx` files are preferred when present. `.safetensors` and `.npy` files under `embeddings/` or `voices/` in that repo are extra voice ids. A saved sample is still the reference when one is stored.
 
 ## 8. Things deliberately left out of the first version

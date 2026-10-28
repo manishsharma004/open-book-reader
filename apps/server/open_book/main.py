@@ -78,7 +78,7 @@ class CompleteBody(BaseModel):
 
 
 class SpeakBody(BaseModel):
-    vendor: Literal["openai", "kokoro", "elevenlabs", "pocket"]
+    vendor: Literal["openai", "kokoro", "elevenlabs", "pocket", "lfm"]
     baseUrl: str = Field(max_length=500)
     model: str = Field(default="", max_length=200)
     apiKey: str = Field(default="", max_length=500)
@@ -320,6 +320,8 @@ async def speak(body: SpeakBody, request: Request) -> dict[str, object] | Respon
         return await asyncio.to_thread(_speak_kokoro, body, origin)
     if body.vendor == "pocket":
         return await _speak_pocket(body, origin, request)
+    if body.vendor == "lfm":
+        return await asyncio.to_thread(_speak_lfm, body, origin)
     return await asyncio.to_thread(_speak_openai, body, origin)
 
 
@@ -471,6 +473,56 @@ async def _speak_pocket(body: SpeakBody, origin: str, request: Request) -> dict[
     mime = response.headers.get("content-type", "audio/wav").split(";")[0].strip().lower()
     if "json" in mime or not response.content:
         raise HTTPException(502, "Pocket TTS returned no audio.")
+    return _audio_result(response.content, mime or "audio/wav", None, delivery)
+
+
+_LFM_LANGS = {
+    "ar",
+    "da",
+    "de",
+    "el",
+    "en",
+    "en-gb",
+    "es",
+    "fi",
+    "fr",
+    "he",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "pl",
+    "pt",
+    "sv",
+    "tr",
+    "zh",
+}
+_LFM_VOICES = {"female", "male"}
+
+
+def _speak_lfm(body: SpeakBody, origin: str) -> dict[str, object]:
+    """POST llama.cpp /tts. LFM3 Audio has two built-in voices and does not clone."""
+    voice = (body.voice or "female").strip().lower()
+    lang = (body.model or "en").strip().lower()
+    if voice not in _LFM_VOICES:
+        raise HTTPException(400, "LFM3 Audio voices are female and male.")
+    if lang not in _LFM_LANGS:
+        raise HTTPException(400, "LFM3 Audio language must be a code such as en or en-gb.")
+    url = f"{origin}/tts"
+    payload = {"input": body.text, "voice": voice, "lang": lang, "response_format": "wav"}
+    delivery = f"LFM3 Audio voice {voice}, language {lang}. No cloning and no word times."
+    if body.sampleBase64:
+        delivery += " The saved sample was not sent."
+    try:
+        with httpx.Client(timeout=180, follow_redirects=False) as client:
+            response = client.post(url, headers=auth_headers(body.apiKey), json=payload)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach {urlparse(url).netloc}: {exc.__class__.__name__}") from exc
+    if response.status_code >= 400:
+        raise vendor_error(response)
+    mime = response.headers.get("content-type", "audio/wav").split(";")[0].strip().lower()
+    if "json" in mime or not response.content:
+        raise HTTPException(502, "LFM3 Audio returned no audio.")
     return _audio_result(response.content, mime or "audio/wav", None, delivery)
 
 

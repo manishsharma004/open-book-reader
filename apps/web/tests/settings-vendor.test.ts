@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyTtsVendorDefaults, defaultSettings, mergeSettings, POCKET_DEVICE_MODEL, POCKET_MODEL, POCKET_ONNX_BASE } from '../src/lib/settings.ts';
+import { applyTtsVendorDefaults, defaultSettings, mergeSettings, LFM_LANG, LFM_PORT, LFM_VOICE, POCKET_DEVICE_MODEL, POCKET_MODEL, POCKET_ONNX_BASE } from '../src/lib/settings.ts';
 
 test('a saved pocket url on port 8000 moves to 7508', () => {
 	const settings = mergeSettings({
@@ -52,6 +52,19 @@ test('choosing on-device pocket points at the public onnx bundle', () => {
 	assert.equal(custom.tts.model, 'german');
 	const kept = mergeSettings({ tts: { vendor: 'pocket-device', model: POCKET_DEVICE_MODEL, voice: 'marius', baseUrl: POCKET_ONNX_BASE } });
 	assert.equal(kept.tts.voice, 'marius');
+});
+
+test('choosing LFM3 Audio points at the local llama.cpp server', () => {
+	const settings = defaultSettings();
+	settings.tts.vendor = 'lfm';
+	applyTtsVendorDefaults(settings.tts, 'kokoro');
+	assert.equal(settings.tts.baseUrl, `http://127.0.0.1:${LFM_PORT}`);
+	assert.equal(settings.tts.model, LFM_LANG);
+	assert.equal(settings.tts.voice, LFM_VOICE);
+	const saved = mergeSettings({ tts: { vendor: 'lfm', baseUrl: 'http://127.0.0.1:7510', model: 'ja', voice: 'male' } });
+	assert.equal(saved.tts.vendor, 'lfm');
+	assert.equal(saved.tts.model, 'ja');
+	assert.equal(saved.tts.voice, 'male');
 });
 
 test('choosing kokoro again restores the preset voice host', () => {

@@ -15,7 +15,7 @@ services:
     ports:
       - "7507:7507"
     environment:
-      SPEECH_UPSTREAM: "7508=http://pocket:7508,8880=http://kokoro:8880"
+      SPEECH_UPSTREAM: "7508=http://pocket:7508,8880=http://kokoro:8880,7510=http://host.docker.internal:7510"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

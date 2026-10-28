@@ -23,6 +23,10 @@ test('the server and the on-device model list their own built-in voice ids', () 
 test('each vendor has a note, and ElevenLabs has no invented ids', () => {
 	assert.ok(voiceCatalog('kokoro').items.some((item) => item.id === 'af_heart'));
 	assert.ok(voiceCatalog('openai').items.some((item) => item.id === 'alloy'));
+	assert.deepEqual(
+		voiceCatalog('lfm').items.map((item) => item.id),
+		['female', 'male']
+	);
 	const eleven = voiceCatalog('elevenlabs');
 	assert.equal(eleven.items.length, 0);
 	assert.match(eleven.note, /ElevenLabs/);

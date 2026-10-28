@@ -37,6 +37,7 @@ the built-in addresses do not match.
 Ports, on the host:
   7507   the app. Open http://localhost:7507
   7508   Pocket TTS, published so a phone can store http://<this-lan-ip>:7508
+  7510   LFM3 Audio, only when scripts/lfm.sh is running
   8880   Kokoro, only inside the Compose network as http://kokoro:8880
 
 The browser still calls only the app. Settings can keep

@@ -4,7 +4,7 @@ import { canonEmotion } from '#lib/speech.js';
 import type { EmotionName, Endpoint, TtsSettings } from '#lib/settings.js';
 
 const HOSTED_SPEECH =
-	'Kokoro, Pocket, OpenAI, and ElevenLabs need the Open Book Reader server. This copy speaks with the browser voice or On-device Pocket.';
+	'Kokoro, Pocket, LFM3 Audio, OpenAI, and ElevenLabs need the Open Book Reader server. This copy speaks with the browser voice or On-device Pocket.';
 const HOSTED_TEXT =
 	'Text and emotion models need the Open Book Reader server. Reading and the browser voice still work in this copy.';
 const HOSTED_CLONE =

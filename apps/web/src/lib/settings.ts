@@ -17,13 +17,37 @@ export const EMOTIONS = [
 
 export type EmotionName = (typeof EMOTIONS)[number];
 export type EmotionChoice = EmotionName | 'auto';
-export type TtsVendor = 'browser' | 'openai' | 'kokoro' | 'elevenlabs' | 'pocket' | 'pocket-device';
+export type TtsVendor = 'browser' | 'openai' | 'kokoro' | 'elevenlabs' | 'pocket' | 'pocket-device' | 'lfm';
 
 export const POCKET_MODEL = 'english_18m_refl_2026-10';
 export const POCKET_DEVICE_MODEL = 'english_2026-04';
 export const POCKET_ONNX_BASE = 'https://huggingface.co/vlapky/pocket-tts-onnx/resolve/main/onnx';
 export const POCKET_VOICE = 'alba';
 export const POCKET_PORT = '7508';
+export const LFM_PORT = '7510';
+export const LFM_LANG = 'en';
+export const LFM_VOICE = 'female';
+export const LFM_LANGS = [
+	'ar',
+	'da',
+	'de',
+	'el',
+	'en',
+	'en-gb',
+	'es',
+	'fi',
+	'fr',
+	'he',
+	'it',
+	'ja',
+	'ko',
+	'nl',
+	'pl',
+	'pt',
+	'sv',
+	'tr',
+	'zh'
+] as const;
 const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '127.0.0.1']);
 
 export type Endpoint = {
@@ -118,6 +142,7 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 		vendor === 'elevenlabs' ||
 		vendor === 'pocket' ||
 		vendor === 'pocket-device' ||
+		vendor === 'lfm' ||
 		vendor === 'browser'
 			? vendor
 			: 'browser';
@@ -195,32 +220,42 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 		} else if (!current || current.port !== POCKET_PORT || !POCKET_HOSTS.has(current.hostname)) {
 			tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
 		}
-		if (!tts.model || tts.model === 'kokoro' || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
+		if (!tts.model || tts.model === 'kokoro' || (LFM_LANGS as readonly string[]).includes(tts.model) || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
 			tts.model = POCKET_MODEL;
 		}
-		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
+		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy' || tts.voice === 'female' || tts.voice === 'male') tts.voice = POCKET_VOICE;
 	}
 	if (tts.vendor === 'pocket-device' && previous !== 'pocket-device') {
-		if (!tts.model || tts.model === 'kokoro' || tts.model === POCKET_MODEL || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
+		if (!tts.model || tts.model === 'kokoro' || tts.model === POCKET_MODEL || (LFM_LANGS as readonly string[]).includes(tts.model) || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
 			tts.model = POCKET_DEVICE_MODEL;
 		}
-		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy') tts.voice = POCKET_VOICE;
+		if (!tts.voice || tts.voice === 'af_heart' || tts.voice === 'alloy' || tts.voice === 'female' || tts.voice === 'male') tts.voice = POCKET_VOICE;
 		if (!looksLikeOnDeviceBundle(tts.baseUrl)) tts.baseUrl = POCKET_ONNX_BASE;
 	}
 	if (tts.vendor === 'pocket' && previous === 'pocket-device') {
 		if (tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
 		if (tts.model === POCKET_DEVICE_MODEL) tts.model = POCKET_MODEL;
 	}
-	if (tts.vendor === 'kokoro' && (previous === 'pocket' || previous === 'pocket-device')) {
+	if (tts.vendor === 'lfm' && previous !== 'lfm') {
 		const current = speechUrl(tts.baseUrl);
-		if (current && current.port === POCKET_PORT && POCKET_HOSTS.has(current.hostname)) {
+		if (!current || current.port !== LFM_PORT || !POCKET_HOSTS.has(current.hostname)) {
+			tts.baseUrl = `http://127.0.0.1:${LFM_PORT}`;
+		}
+		if (!(LFM_LANGS as readonly string[]).includes(tts.model)) tts.model = LFM_LANG;
+		if (tts.voice !== 'female' && tts.voice !== 'male') tts.voice = LFM_VOICE;
+	}
+	if (tts.vendor === 'kokoro' && (previous === 'pocket' || previous === 'pocket-device' || previous === 'lfm')) {
+		const current = speechUrl(tts.baseUrl);
+		if (current && (current.port === POCKET_PORT || current.port === LFM_PORT) && POCKET_HOSTS.has(current.hostname)) {
 			current.port = '8880';
 			current.pathname = '/v1';
 			tts.baseUrl = `${current.origin}/v1`;
 		}
 		if (tts.baseUrl.includes('pocket-tts-onnx')) tts.baseUrl = 'http://127.0.0.1:8880/v1';
-		if (tts.model === POCKET_MODEL || tts.model === POCKET_DEVICE_MODEL) tts.model = 'kokoro';
-		if (tts.voice === POCKET_VOICE) tts.voice = 'af_heart';
+		if (tts.model === POCKET_MODEL || tts.model === POCKET_DEVICE_MODEL || (LFM_LANGS as readonly string[]).includes(tts.model)) {
+			tts.model = 'kokoro';
+		}
+		if (tts.voice === POCKET_VOICE || tts.voice === 'female' || tts.voice === 'male') tts.voice = 'af_heart';
 	}
 }
 
