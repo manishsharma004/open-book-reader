@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { chaptersFromToc, openEpub, pageFrame, sectionDocument, type ParsedEpub } from '#lib/epub.js';
 	import { pageFlick } from '#lib/page-flick.js';
+	import { pageScale, reflowBudgetFor } from '#lib/stage-fit.js';
 	import { MARK_TINT, selectionWords } from '#lib/marks.js';
 	import { HEADING_TINT, READY_TINT } from '#lib/speech-clips.js';
 	import { wordHits, type MarkPiece } from '#lib/spoken-marks.js';
@@ -50,7 +51,7 @@
 	let probe = $state<HTMLIFrameElement | null>(null);
 	let width = $state(0);
 	let height = $state(0);
-	let sections = $state.raw<{ href: string; html: string; start: number; count: number }[]>([]);
+	let sections = $state.raw<{ href: string; html: string; start: number; count: number; column: number; pageHeight: number }[]>([]);
 	let shown = '';
 	let desired = 0;
 	let markedKey = '';
@@ -63,7 +64,14 @@
 	let laidSpread = false;
 	let seenBytes = 0;
 	let reflowBudget = 0;
+	let spentWidth = 0;
+	let spentHeight = 0;
 	let reflowQueued = false;
+	let frameWidth = $state(0);
+	let frameHeight = $state(0);
+	let frameScale = $state(1);
+	let frameLeft = $state(0);
+	let frameTop = $state(0);
 	let layoutGeneration = 0;
 
 	const blocks = new Set(['ADDRESS', 'ARTICLE', 'BLOCKQUOTE', 'DIV', 'DD', 'DT', 'FIGCAPTION', 'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'P', 'PRE', 'SECTION', 'TR']);
@@ -219,7 +227,7 @@
 		const apply = () => {
 			const nextWidth = node.clientWidth;
 			const nextHeight = node.clientHeight;
-			if (width > 0 && Math.abs(nextWidth - width) < 24 && Math.abs(nextHeight - height) < 24) return;
+			if (width > 0 && Math.abs(nextWidth - width) < 8 && Math.abs(nextHeight - height) < 8) return;
 			width = nextWidth;
 			height = nextHeight;
 		};
@@ -380,7 +388,7 @@
 			starts.set(item.href, pages.length);
 			anchors.set(item.href, laid.anchors);
 			const count = Math.max(laid.texts.length, 1);
-			built.push({ href: item.href, html, start: pages.length, count });
+			built.push({ href: item.href, html, start: pages.length, count, column: widthPx, pageHeight: box.h });
 			pages.push(...(laid.texts.length ? laid.texts : ['']));
 			sections = built.slice();
 			onlayout(pages.slice(), chaptersFromToc(book.toc, book.spine, starts, anchors), false);
@@ -427,8 +435,7 @@
 				laidHeight = box.h;
 				laidSpread = box.spread;
 				const now = liveBox();
-				if (sizeDrift(box, now) && reflowBudget < 2) {
-					reflowBudget += 1;
+				if (sizeDrift(box, now) && noteReflow(now.w, now.h)) {
 					reflowQueued = true;
 					reflowTick += 1;
 				}
@@ -446,12 +453,43 @@
 		const h = height;
 		const wide = spread;
 		const ready = stageReady;
-		if (!ready || !data || w < 40 || h < 40 || laying || laidWidth === 0 || reflowQueued || reflowBudget >= 2) return;
+		if (!ready || !data || w < 40 || h < 40 || laying || laidWidth === 0 || reflowQueued) return;
 		if (!sizeDrift({ w: laidWidth, h: laidHeight, spread: laidSpread }, { w, h, spread: wide })) return;
-		reflowQueued = true;
-		reflowBudget += 1;
-		reflowTick += 1;
+		const timer = window.setTimeout(() => {
+			if (!noteReflow(w, h)) return;
+			reflowQueued = true;
+			reflowTick += 1;
+		}, 180);
+		return () => window.clearTimeout(timer);
 	});
+
+	function noteReflow(w: number, h: number) {
+		reflowBudget = reflowBudgetFor(reflowBudget, spentWidth, spentHeight, w, h);
+		if (reflowBudget >= 2) return false;
+		reflowBudget += 1;
+		spentWidth = w;
+		spentHeight = h;
+		return true;
+	}
+
+	function fitView() {
+		const boxW = view?.contentDocument?.body?.offsetWidth ?? 0;
+		const boxH = view?.contentDocument?.body?.offsetHeight ?? 0;
+		if (boxW < 40 || boxH < 40 || width < 40 || height < 40) {
+			frameWidth = 0;
+			frameHeight = 0;
+			frameScale = 1;
+			frameLeft = 0;
+			frameTop = 0;
+			return;
+		}
+		const scale = pageScale(width, height, boxW, boxH);
+		frameWidth = boxW;
+		frameHeight = boxH;
+		frameScale = scale;
+		frameLeft = Math.max(0, (width - boxW * scale) / 2);
+		frameTop = Math.max(0, (height - boxH * scale) / 2);
+	}
 
 	function place(doc: Document, section: { href: string; start: number; count: number }, widthPx: number) {
 		const flow = doc.getElementById('ob-flow');
@@ -459,6 +497,7 @@
 		const shift = -(at - section.start) * widthPx;
 		if (flow) flow.style.transform = `translateX(${shift}px)`;
 		if (columnShift !== shift) columnShift = shift;
+		fitView();
 		doc.onpointerdown = (event) => {
 			if (event.button !== 0) return;
 			const startX = event.clientX;
@@ -488,12 +527,14 @@
 	$effect(() => {
 		const frame = view;
 		desired = page;
-		const widthPx = columnWidth(width);
-		const limit = pageFrame(widthPx, height, spread).innerHeight;
 		// Keep the open section on screen until the page being turned to has been measured.
 		// Falling through to the latest section reloaded a different chapter on every spine item.
 		const section = sections.find((item) => desired >= item.start && desired < item.start + item.count);
-		if (!frame || !section || width < 40) return;
+		if (!frame || !section) return;
+		// Shift by the column this section was measured with. The live stage width only scales
+		// the frame, so opening a sidebar does not reload the page or slice it at the pane.
+		const widthPx = section.column;
+		const limit = pageFrame(widthPx, section.pageHeight).innerHeight;
 		const key = `${section.href}:${widthPx}:${section.start}`;
 		const doc = frame.contentDocument;
 		if (shown === key) {
@@ -515,6 +556,12 @@
 	});
 
 	$effect(() => {
+		width;
+		height;
+		untrack(() => fitView());
+	});
+
+	$effect(() => {
 		columnShift;
 		words;
 		activeWord;
@@ -526,7 +573,19 @@
 	});
 </script>
 
-<div class="relative h-full w-full" bind:this={host} data-epub-stage data-epub-spread={spread ? 'on' : 'off'}>
-	<iframe title="Book page" class="h-full w-full border-0 bg-white" bind:this={view} sandbox="allow-same-origin" scrolling="no"></iframe>
+<div class="relative h-full w-full overflow-hidden" bind:this={host} data-epub-stage data-epub-spread={spread ? 'on' : 'off'}>
+	<iframe
+		title="Book page"
+		class="absolute border-0 bg-white {frameWidth ? '' : 'h-full w-full'}"
+		style:width={frameWidth ? `${frameWidth}px` : undefined}
+		style:height={frameWidth ? `${frameHeight}px` : undefined}
+		style:left={frameWidth ? `${frameLeft}px` : undefined}
+		style:top={frameWidth ? `${frameTop}px` : undefined}
+		style:transform={frameWidth ? `scale(${frameScale})` : undefined}
+		style:transform-origin={frameWidth ? 'top left' : undefined}
+		bind:this={view}
+		sandbox="allow-same-origin"
+		scrolling="no"
+	></iframe>
 	<iframe title="" class="pointer-events-none absolute inset-0 -z-10 opacity-0" bind:this={probe} sandbox="allow-same-origin" tabindex="-1"></iframe>
 </div>

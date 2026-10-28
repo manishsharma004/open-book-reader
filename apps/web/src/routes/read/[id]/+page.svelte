@@ -1378,7 +1378,7 @@
 	{#if error}
 		<p class="text-destructive p-6 text-sm">{error}</p>
 	{:else}
-		<div class="flex min-h-0 flex-1 flex-col lg:flex-row">
+		<div class="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:flex-row" data-reader-row>
 			{#if outlineOpen && chapters.length > 0}
 				<aside
 					class="chapter-pane border-border bg-card relative max-h-72 shrink-0 overflow-hidden border-b lg:max-h-none lg:border-r lg:border-b-0"
@@ -1401,7 +1401,7 @@
 					></button>
 				</aside>
 			{/if}
-			<div class="relative min-h-0 min-w-0 flex-1">
+			<div class="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-book-window>
 				<div
 					class="absolute inset-0 overflow-hidden {book?.kind === 'epub' ? 'touch-manipulation' : 'touch-none'}"
 					bind:this={stage}
@@ -1433,10 +1433,10 @@
 						/>
 					{:else}
 					<div class="flex h-full w-full items-center justify-center" data-facing={facingMode}>
-						<div class="relative">
+						<div class="relative {book?.kind === 'text' ? 'flex h-full w-full items-center justify-center' : ''}">
 							<div
 								bind:this={pageSheet}
-								class="relative flex items-stretch justify-center gap-4"
+								class="relative flex items-stretch justify-center gap-4 {book?.kind === 'text' ? 'h-full w-full' : ''}"
 								class:shadow-xl={dragX !== 0}
 								data-page-sheet
 								data-drag={Math.round(dragX)}
@@ -1444,11 +1444,11 @@
 								style:opacity={pageOpacity}
 								style:transition={dragAnimate ? 'transform 300ms ease, opacity 220ms ease' : 'none'}
 							>
-							<div class="relative bg-white shadow-sm" data-spread-page="left">
+							<div class="relative bg-white shadow-sm {book?.kind === 'text' ? (companionIndex >= 0 ? 'h-full w-[min(36rem,calc(50%-0.5rem))]' : 'h-full w-full max-w-[42rem]') : ''}" data-spread-page="left">
 							<canvas bind:this={canvas} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
 							{#if book?.kind === 'text'}
 								<div
-									class="{companionIndex >= 0 ? 'w-[min(36rem,42vw)]' : 'w-[min(42rem,86vw)]'} max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900 select-text"
+									class="h-full w-full overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900 select-text"
 									data-text-page
 								>
 									{#each words as word, index (`text:${index}:${word.charStart}`)}
@@ -1509,14 +1509,14 @@
 							{#if companionIndex >= 0}
 								<button
 									type="button"
-									class="relative bg-white text-left shadow-sm"
+									class="relative bg-white text-left shadow-sm {book?.kind === 'text' ? 'h-full w-[min(36rem,calc(50%-0.5rem))]' : ''}"
 									data-spread-page="right"
 									aria-label={`Page ${companionIndex + 1}`}
 									onclick={() => jump(companionIndex)}
 								>
 									<canvas bind:this={canvasRight} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
 									{#if book?.kind === 'text'}
-										<div class="w-[min(36rem,42vw)] max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page="right">
+										<div class="h-full w-full overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900" data-text-page="right">
 											{#each companionWords as word, index (`right:${index}:${word.charStart}`)}
 												<span class:mt-4={word.role === 'heading' && companionWords[index - 1]?.role !== 'heading'} class:text-xl={word.role === 'heading'}>{word.text}</span>{' '}
 											{/each}
