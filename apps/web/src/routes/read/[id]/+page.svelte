@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import ChapterNav from '#lib/components/chapter-nav.svelte';
+	import MarksDialog from '#lib/components/marks-dialog.svelte';
 	import EpubStage from '#lib/components/epub-stage.svelte';
 	import VoiceIdInfo from '#lib/components/voice-id-info.svelte';
 	import VoiceRecorder from '#lib/components/voice-recorder.svelte';
@@ -38,6 +39,7 @@
 	import { elapsedBefore, indexAt, indexForTimings, timeForWord, wordDurations } from '#lib/highlight.js';
 	import { companionPage, spreadActive, turnTarget } from '#lib/spread.js';
 	import { clipIndexForWord, speechPace, wordBackdrop } from '#lib/speech-clips.js';
+	import { MARK_TINT, highlightExcerpt, highlightedWords, selectionWords, upsertHighlight } from '#lib/marks.js';
 	import { browserDelivery, cancelSpeech, createUtterance, listVoices, speak, voiceByName, watchVoices } from '#lib/speech.js';
 	import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
 	import { onDestroy, untrack } from 'svelte';
@@ -116,6 +118,8 @@
 	const shownPage = $derived(scrub ?? pageIndex);
 	const chapters = $derived(book?.chapters ?? []);
 	const chapterTrail = $derived(activeTrail(chapters, shownPage));
+	const markedWords = $derived(highlightedWords(book?.highlights, pageIndex));
+	const selectionText = $derived(selectionSpan ? highlightExcerpt(words.map((word) => word.text), selectionSpan.start, selectionSpan.end) : '');
 	const spreadOn = $derived(spreadActive(facingWanted, stageWidth, stageHeight, book?.pageCount ?? 0));
 	const companionIndex = $derived(companionPage(pageIndex, book?.pageCount ?? 0, spreadOn));
 	const facingMode = $derived(spreadOn ? 'on' : facingWanted ? 'waiting' : 'off');
@@ -144,6 +148,10 @@
 	let narrow = $state(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
 	let outlineOpen = $state(initialSideOpen('open-book-chapters-open'));
 	let pipelineOpen = $state(initialSideOpen('open-book-pipeline-open'));
+	let marksOpen = $state(false);
+	let selectionSpan = $state<{ start: number; end: number } | null>(null);
+	let selectionPage = -1;
+	let markAnchor = -1;
 	let chapterWidth = $state(storedWidth('open-book-chapters-width', 288, CHAPTER_MIN));
 	let pipelineWidth = $state(storedWidth('open-book-pipeline-width', 320, PIPELINE_MIN));
 
@@ -432,6 +440,17 @@
 	});
 
 	function placeProgress(found: Book) {
+		const asked = Number(page.url.searchParams.get('page'));
+		if (Number.isInteger(asked) && asked >= 1) {
+			const word = Number(page.url.searchParams.get('word'));
+			const wordIndex = Number.isInteger(word) && word >= 0 ? word : 0;
+			pendingWord = wordIndex;
+			resumeWord = wordIndex;
+			activeWord = wordIndex > 0 ? wordIndex : -1;
+			pageIndex = found.pageCount > 0 ? Math.min(found.pageCount - 1, asked - 1) : Math.max(0, asked - 1);
+			progressReady = true;
+			return;
+		}
 		const saved = storedProgress(found);
 		pendingWord = saved.wordIndex;
 		resumeWord = saved.wordIndex;
@@ -738,15 +757,74 @@
 		await flushBook();
 	}
 
-	function jump(next: number) {
+	function jump(next: number, word = 0) {
 		if (!book) return;
 		scrub = null;
-		pendingWord = 0;
-		resumeWord = 0;
-		activeWord = -1;
+		pendingWord = word;
+		resumeWord = word;
+		activeWord = word > 0 ? word : -1;
 		pageIndex = Math.min(book.pageCount - 1, Math.max(0, next));
 		if (narrow) setOutline(false);
 	}
+
+	function storeBook(next: Book) {
+		book = next;
+		void flushBook();
+	}
+
+	function visitMark(bookId: string, target: number, word: number) {
+		if (!book || bookId !== book.id) return;
+		marksOpen = false;
+		jump(target, word);
+	}
+
+	function chooseWord(index: number, shift = false) {
+		if (shift && markAnchor >= 0) {
+			selectionSpan = { start: Math.min(markAnchor, index), end: Math.max(markAnchor, index) + 1 };
+			return;
+		}
+		markAnchor = index;
+		playFrom(index, { seek: true });
+	}
+
+	function saveSelection() {
+		if (!book || !selectionSpan) return;
+		const text = highlightExcerpt(
+			words.map((word) => word.text),
+			selectionSpan.start,
+			selectionSpan.end
+		);
+		if (!text) return;
+		book = {
+			...book,
+			highlights: upsertHighlight(book.highlights, {
+				id: crypto.randomUUID(),
+				pageIndex,
+				wordStart: selectionSpan.start,
+				wordEnd: selectionSpan.end,
+				text,
+				note: '',
+				createdAt: Date.now()
+			})
+		};
+		selectionSpan = null;
+		void flushBook();
+	}
+
+	function onDocumentSelection() {
+		if (book?.kind === 'epub') return;
+		const root = document.querySelector('[data-text-page]') ?? document.querySelector('[data-spread-page="left"]');
+		if (!(root instanceof HTMLElement)) return;
+		const next = selectionWords(root, window.getSelection());
+		if (next) selectionSpan = next;
+	}
+
+	$effect(() => {
+		if (selectionPage === pageIndex) return;
+		selectionPage = pageIndex;
+		selectionSpan = null;
+		markAnchor = -1;
+	});
 
 	function startOver() {
 		pendingWord = 0;
@@ -1242,7 +1320,7 @@
 	<title>{book?.title ?? 'Reader'}</title>
 </svelte:head>
 
-<svelte:window onkeydown={onReaderKey} />
+<svelte:window onkeydown={onReaderKey} onselectionchange={onDocumentSelection} />
 
 <div class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	{#if narrow && (outlineOpen || pipelineOpen)}
@@ -1264,6 +1342,9 @@
 		<Button variant={pipelineOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={pipelineOpen} data-pipeline-toggle onclick={() => setPipeline(!pipelineOpen)}>
 			Pipeline
 		</Button>
+		<Button variant={marksOpen ? 'secondary' : 'outline'} size="sm" aria-pressed={marksOpen} data-marks-toggle disabled={!book} onclick={() => (marksOpen = !marksOpen)}>
+			Marks
+		</Button>
 		<p class="min-w-0 flex-1 truncate text-sm font-medium">{book?.title ?? 'Opening…'}</p>
 		{#if chapterTrail.length}
 			<span class="text-muted-foreground hidden max-w-48 truncate text-xs sm:inline" data-chapter={chapterTrail[chapterTrail.length - 1]?.title ?? ''}>
@@ -1279,6 +1360,20 @@
 		</span>
 		<Button href={resolve('/settings')} variant="ghost" size="sm">Settings</Button>
 	</header>
+	{#if book}
+		<MarksDialog
+			open={marksOpen}
+			books={[book]}
+			focusId={book.id}
+			pageIndex={pageIndex}
+			chapterTitle={chapterTrail[chapterTrail.length - 1]?.title ?? ''}
+			selectionText={selectionText}
+			onOpenChange={(next) => (marksOpen = next)}
+			onBook={storeBook}
+			onVisit={visitMark}
+			onHighlightSelection={saveSelection}
+		/>
+	{/if}
 
 	{#if error}
 		<p class="text-destructive p-6 text-sm">{error}</p>
@@ -1329,7 +1424,9 @@
 							sentenceStart={spokenSentence?.wordStart ?? -1}
 							sentenceEnd={spokenSentence?.wordEnd ?? -1}
 							ready={readyWords}
-							onword={(index) => playFrom(index, { seek: true })}
+							marked={markedWords}
+							onword={(index, shift) => chooseWord(index, shift)}
+							onselection={(range) => (selectionSpan = range)}
 							onlayout={onEpubLayout}
 							onflick={playTurn}
 							onfail={onEpubFail}
@@ -1351,32 +1448,33 @@
 							<canvas bind:this={canvas} class="bg-white" class:hidden={book?.kind === 'text'}></canvas>
 							{#if book?.kind === 'text'}
 								<div
-									class="{companionIndex >= 0 ? 'w-[min(36rem,42vw)]' : 'w-[min(42rem,86vw)]'} max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900"
+									class="{companionIndex >= 0 ? 'w-[min(36rem,42vw)]' : 'w-[min(42rem,86vw)]'} max-h-[78vh] overflow-auto bg-white px-8 py-10 leading-8 text-neutral-900 select-text"
 									data-text-page
 								>
 									{#each words as word, index (`text:${index}:${word.charStart}`)}
 										{#if word.role === 'heading' && words[index - 1]?.role !== 'heading'}<br />{/if}
 										<button
 											type="button"
-											class="rounded-[1px]"
+											class="rounded-[1px] select-text"
 											class:mt-4={word.role === 'heading' && words[index - 1]?.role !== 'heading'}
 											class:text-xl={word.role === 'heading'}
-											style:background={wordBackdrop(
-												index === activeWord || activeWord === -2,
-												readyWords[index] === true,
-												word.role
-											)}
+											style:background={markedWords[index] && index !== activeWord
+												? MARK_TINT
+												: wordBackdrop(index === activeWord || activeWord === -2, readyWords[index] === true, word.role)}
 											style:box-shadow={wordRuled(index)
 												? 'inset 0 -2px 0 var(--highlight-line)'
-												: word.role === 'heading'
-													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
-													: 'none'}
+												: markedWords[index]
+													? 'inset 0 -3px 0 #ca8a04'
+													: word.role === 'heading'
+														? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
+														: 'none'}
 											aria-label={word.text}
 											aria-current={index === activeWord ? 'true' : undefined}
 											data-word={index}
 											data-role={word.role}
 											data-speech-ready={readyWords[index] ? 'true' : 'false'}
-											onclick={() => playFrom(index, { seek: true })}
+											data-saved-highlight={markedWords[index] ? 'true' : 'false'}
+											onclick={(event) => chooseWord(index, event.shiftKey)}
 										>{word.text}</button>{' '}
 									{/each}
 								</div>
@@ -1387,21 +1485,22 @@
 										<button
 											type="button"
 											class="pointer-events-auto absolute rounded-[1px]"
-											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{wordBackdrop(
-												index === activeWord || activeWord === -2,
-												readyWords[index] === true,
-												word.role
-											)};box-shadow:{wordRuled(index)
+											style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;background:{markedWords[index] && index !== activeWord
+												? MARK_TINT
+												: wordBackdrop(index === activeWord || activeWord === -2, readyWords[index] === true, word.role)};box-shadow:{wordRuled(index)
 												? 'inset 0 -2px 0 var(--highlight-line)'
-												: word.role === 'heading'
-													? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
-													: 'none'}"
+												: markedWords[index]
+													? 'inset 0 -3px 0 #ca8a04'
+													: word.role === 'heading'
+														? 'inset 0 -2px 0 rgba(180, 83, 9, 0.75)'
+														: 'none'}"
 											aria-label={word.text}
 											aria-current={index === activeWord ? 'true' : undefined}
 											data-word={index}
 											data-role={word.role}
 											data-speech-ready={readyWords[index] ? 'true' : 'false'}
-											onclick={() => playFrom(index, { seek: true })}
+											data-saved-highlight={markedWords[index] ? 'true' : 'false'}
+											onclick={(event) => chooseWord(index, event.shiftKey)}
 										></button>
 									{/each}
 								</div>
@@ -1445,6 +1544,15 @@
 									<p class="text-sm font-medium">Buffering the next lines</p>
 									<p class="text-muted-foreground text-xs">{speechReadyLabel}</p>
 								</div>
+							</div>
+						</div>
+					{/if}
+					{#if selectionText}
+						<div class="bg-card border-border absolute bottom-4 left-1/2 z-20 grid w-[min(36rem,90%)] -translate-x-1/2 gap-2 rounded-xl border p-3 shadow-lg" data-highlight-bar>
+							<p class="line-clamp-3 text-sm">{selectionText}</p>
+							<div class="flex gap-2">
+								<Button size="sm" data-save-highlight onpointerdown={(event) => event.preventDefault()} onclick={saveSelection}>Highlight</Button>
+								<Button size="sm" variant="ghost" data-clear-selection onclick={() => (selectionSpan = null)}>Cancel</Button>
 							</div>
 						</div>
 					{/if}

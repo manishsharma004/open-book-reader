@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { chaptersFromToc, openEpub, pageFrame, sectionDocument, type ParsedEpub } from '#lib/epub.js';
 	import { pageFlick } from '#lib/page-flick.js';
+	import { MARK_TINT, selectionWords } from '#lib/marks.js';
 	import { HEADING_TINT, READY_TINT } from '#lib/speech-clips.js';
 	import { wordHits, type MarkPiece } from '#lib/spoken-marks.js';
 	import { joinReadingRuns, type ReadingRun } from '#lib/spoken-text.js';
@@ -19,7 +20,9 @@
 		sentenceStart?: number;
 		sentenceEnd?: number;
 		ready?: boolean[];
-		onword?: (index: number) => void;
+		marked?: boolean[];
+		onword?: (index: number, shift?: boolean) => void;
+		onselection?: (range: { start: number; end: number } | null) => void;
 		onlayout: (pages: string[], chapters: Chapter[], done: boolean) => void;
 		onflick: (direction: 1 | -1) => void;
 		onfail: (message: string) => void;
@@ -34,7 +37,9 @@
 		sentenceStart = -1,
 		sentenceEnd = -1,
 		ready = [],
+		marked = [],
 		onword,
+		onselection,
 		onlayout,
 		onflick,
 		onfail
@@ -118,7 +123,8 @@
 	function markClass(index: number) {
 		const names = ['ob-w'];
 		const role = words[index]?.role;
-		if (ready[index]) names.push('ob-ready');
+		if (marked[index]) names.push('ob-saved');
+		else if (ready[index]) names.push('ob-ready');
 		else if (role === 'heading') names.push('ob-heading');
 		if (index >= sentenceStart && index < sentenceEnd) names.push('ob-sentence');
 		if (index === activeWord) names.push('ob-active');
@@ -135,7 +141,7 @@
 			sheet.id = 'ob-mark';
 			doc.head.appendChild(sheet);
 		}
-		sheet.textContent = `.ob-w{border-radius:1px}.ob-ready{background:${READY_TINT}}.ob-heading{background:${HEADING_TINT}}.ob-sentence{box-shadow:inset 0 -2px 0 ${line}}.ob-active{background:${fill};box-shadow:inset 0 -2px 0 ${line}}`;
+		sheet.textContent = `.ob-w{border-radius:1px}.ob-ready{background:${READY_TINT}}.ob-saved{background:${MARK_TINT}}.ob-heading{background:${HEADING_TINT}}.ob-sentence{box-shadow:inset 0 -2px 0 ${line}}.ob-active{background:${fill};box-shadow:inset 0 -2px 0 ${line}}`;
 		const byPiece = new Map<number, { start: number; end: number; word: number }[]>();
 		hits.forEach((slices, word) => {
 			for (const slice of slices) {
@@ -158,6 +164,7 @@
 				span.className = markClass(slice.word);
 				span.dataset.obWord = String(slice.word);
 				span.dataset.obRole = words[slice.word]?.role ?? 'body';
+				if (marked[slice.word]) span.dataset.savedHighlight = 'true';
 				range.surroundContents(span);
 			}
 		}
@@ -169,13 +176,14 @@
 			// The page lives in the iframe's document, so the parent's Element is a different class.
 			if (!ViewElement || !(target instanceof ViewElement)) return;
 			const chosen = doc.getSelection();
-			if (chosen && !chosen.isCollapsed) return;
+			if (chosen && !chosen.isCollapsed && !event.shiftKey) return;
 			const span = target.closest('[data-ob-word]');
 			if (!span) return;
 			event.preventDefault();
 			event.stopPropagation();
-			onword?.(Number(span.getAttribute('data-ob-word')));
+			onword?.(Number(span.getAttribute('data-ob-word')), event.shiftKey);
 		};
+		doc.onselectionchange = () => onselection?.(selectionWords(doc, doc.getSelection()));
 	}
 
 	function remark() {
@@ -188,7 +196,10 @@
 			for (const span of existing) {
 				const word = Number(span.getAttribute('data-ob-word'));
 				if (!Number.isInteger(word)) continue;
-				(span as HTMLElement).className = markClass(word);
+				const saved = span as HTMLElement;
+				saved.className = markClass(word);
+				if (marked[word]) saved.dataset.savedHighlight = 'true';
+				else delete saved.dataset.savedHighlight;
 			}
 			return;
 		}
@@ -510,6 +521,7 @@
 		sentenceStart;
 		sentenceEnd;
 		ready;
+		marked;
 		untrack(() => remark());
 	});
 </script>

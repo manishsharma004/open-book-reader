@@ -14,6 +14,25 @@ export type Book = {
 	chapters?: Chapter[];
 	/** Last page and word in this browser. Opening the book returns here. */
 	progress?: { pageIndex: number; wordIndex: number } | null;
+	bookmarks?: PageBookmark[];
+	highlights?: SavedHighlight[];
+};
+
+export type PageBookmark = {
+	id: string;
+	pageIndex: number;
+	label: string;
+	createdAt: number;
+};
+
+export type SavedHighlight = {
+	id: string;
+	pageIndex: number;
+	wordStart: number;
+	wordEnd: number;
+	text: string;
+	note: string;
+	createdAt: number;
 };
 
 type BlobRecord = {

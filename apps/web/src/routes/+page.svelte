@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import UploadIcon from '@lucide/svelte/icons/upload';
+	import MarksDialog from '#lib/components/marks-dialog.svelte';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -9,7 +10,7 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
-	import { clearBookSpeech, deleteBook, getBlob, listBooks, type Book } from '#lib/db.js';
+	import { clearBookSpeech, deleteBook, getBlob, listBooks, updateBook, type Book } from '#lib/db.js';
 	import { saveEpubFile, savePdfFile } from '#lib/library.js';
 	import { isPasswordError } from '#lib/pdf.js';
 
@@ -18,6 +19,7 @@
 	let covers = $state<Record<string, string>>({});
 	let storage = $state<{ used: number; quota: number } | null>(null);
 	let open = $state(false);
+	let marksOpen = $state(false);
 	let busy = $state(false);
 	let cleared = $state('');
 	let error = $state('');
@@ -174,6 +176,7 @@
 		</div>
 		<div class="flex gap-2">
 			<Button href={resolve('/open')} variant="secondary">Browse open books</Button>
+			<Button variant="outline" data-library-marks onclick={() => (marksOpen = true)}>Marks</Button>
 			<Button onclick={() => (open = true)}>Add book</Button>
 		</div>
 	</div>
@@ -240,6 +243,20 @@
 		</div>
 	{/if}
 </main>
+
+<MarksDialog
+	open={marksOpen}
+	{books}
+	onOpenChange={(next) => (marksOpen = next)}
+	onBook={(next) => {
+		books = books.map((item) => (item.id === next.id ? next : item));
+		void updateBook(next);
+	}}
+	onVisit={(bookId, pageIndex, wordIndex) => {
+		marksOpen = false;
+		void goto(`${resolve('/read/[id]', { id: bookId })}?page=${pageIndex + 1}&word=${wordIndex}`);
+	}}
+/>
 
 <Dialog.Root
 	bind:open

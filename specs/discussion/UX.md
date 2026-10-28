@@ -147,7 +147,7 @@ Shown when the book is Ready.
 - Table of contents drawer (☰): chapters, bookmarks, search.
 - Search: text search across spans, with an option for **Similar passages** that uses the local embeddings.
 - Sleep timer (☾): 15, 30, 45, 60 minutes, end of chapter. Fades out over the last 10 seconds.
-- Bookmarks (🔖): saved at the current word, with an optional note.
+- **Marks** in the reader and in the library opens the list of bookmarks and highlights. The list stays closed until it is opened. A bookmark is the current page with a label. One page keeps one bookmark, and the label can be changed or removed from the list. Choosing a bookmark opens that page. A highlight is a selected passage, or the words from Shift-click on the first word to Shift-click on the last. It is drawn on the page and can take a note. Choosing a highlight opens that page at the passage.
 
 ### 3.7 Chapter review
 
@@ -237,6 +237,5 @@ Headphone and lock-screen buttons use the Media Session API: play, pause, seek b
 ## 8. Things deliberately left out of the first version
 
 - Multiple voices per book (narrator plus characters). The transcript carries `speaker`, so this can be added without a new schema.
-- Notes and highlights beyond bookmarks.
 - Sync between devices. Export and import cover moving a book.
 - Reading statistics.
