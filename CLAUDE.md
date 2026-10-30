@@ -22,7 +22,7 @@ Speech is clips that end on a full stop and pack up to the player pace (default 
 
 - App server: `apps/server/.venv`, `uvicorn open_book.main:app --host 0.0.0.0 --port 7507`. It reads `apps/web/build` from disk. Rebuild the web app to update the UI. Restart this process only after a Python proxy change.
 - Pocket: `services/pocket/.venv`, `POCKET_HOST=0.0.0.0`, `POCKET_PORT=7508`, `POCKET_LANGUAGE=english_18m_refl_2026-10`. It must listen on `0.0.0.0` so the published port reaches it. Health is `GET /health`.
-- The only ports this container may publish are 7500–7510. Kokoro on 8880 and Ollama on 11434 or 5173 are on the LAN host `127.0.0.1`, not in this container. Do not use port 8000 for Pocket.
+- The only ports this container may publish are 7500–7510. Kokoro on 8880 and Ollama on 11434 or 5173 are on this machine at `127.0.0.1`, not in this container. Do not use port 8000 for Pocket.
 - Pocket uses the RX 5500M (gfx1012) when that card has at least 1 GB free, through the existing ROCm torch `2.14.0+rocm10.1.0`. Do not `uv pip install -r services/pocket/requirements.txt`. That file does not pin torch, and the install replaces the ROCm wheel with a CUDA wheel. Do not set `HSA_OVERRIDE_GFX_VERSION`.
 - The Laya brain was stopped on purpose so Pocket could use the GPU. Do not start it again. Leave the chat UI that was already on 7504 and 7509 alone.
 - `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN` are unset. The loaded weights are `pocket-tts-without-voice-cloning`. Builtin voice names work. An uploaded sample is still sent as `voice_wav`, but these weights do not clone a speaker. Do not claim that they do, and do not try to download the gated cloning weights.

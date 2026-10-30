@@ -47,7 +47,7 @@ test('the file list prefers the hinted folder, then a quantized language folder'
 
 test('an insecure page explains why the microphone sheet cannot appear', () => {
 	const blocked = microphoneBlock(false, false, 'http://127.0.0.1:7507');
-	assert.match(blocked, /192\.168\.29\.45:7507/);
+	assert.match(blocked, /127\.0\.0\.1:7507/);
 	assert.match(blocked, /audio file/);
 	assert.equal(microphoneBlock(true, true, 'https://reader.example'), '');
 	assert.match(microphoneBlock(true, false, 'https://reader.example'), /no microphone API/);

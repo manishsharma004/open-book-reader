@@ -48,7 +48,7 @@ export const LFM_LANGS = [
 	'tr',
 	'zh'
 ] as const;
-const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '127.0.0.1']);
+const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 export type Endpoint = {
 	enabled: boolean;

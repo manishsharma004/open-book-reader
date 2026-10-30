@@ -64,7 +64,7 @@ The RX 5500M is gfx1012. Official ROCm wheels do not include that chip. The venv
 
 Pocket uses the card only when HIP can see it and at least 1 GB is free. Otherwise it stays on the CPU. The CPU path of the ROCm wheel is several times slower than a CPU wheel, which is why an earlier CPU-only run felt stuck. Another process had been holding almost all of the card. Stopping that process, and only that pid, let Pocket load on the GPU. The first utterance warned about a missing MIOpen kernel. Later short lines were about five times realtime.
 
-Pocket must listen on `0.0.0.0:7508`. The published port is on the host. A phone stores `http://127.0.0.1:7508`, and the proxy inside the container dials that address, which hairpins back in. Port 8000 is refused. Choosing Pocket rewrites an allowed Kokoro URL from 8880 to 7508.
+Pocket must listen on `0.0.0.0:7508`. The published port is on the host. The proxy accepts Pocket at `http://127.0.0.1:7508`. Port 8000 is refused. Choosing Pocket rewrites an allowed Kokoro URL from 8880 to 7508.
 
 ## Process and build
 

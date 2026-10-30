@@ -21,13 +21,12 @@ def clear_allow(monkeypatch):
 def test_completion_allows_llm_port_on_named_hosts():
     assert approved_completion_base("http://127.0.0.1:5173/v1") == "http://127.0.0.1:5173"
     assert approved_completion_base("http://localhost:5173/v1") == "http://localhost:5173"
-    assert approved_completion_base("http://127.0.0.1:5173/v1") == "http://127.0.0.1:5173"
     assert approved_completion_base("http://[::1]:5173/v1") == "http://[::1]:5173"
     for url in [
-        "http://127.0.0.1:11434/v1",
-        "http://192.168.1.46:5173/v1",
+        "http://192.168.1.45:11434/v1",
+        "http://192.168.1.45:5173/v1",
         "http://127.0.0.1:5174/v1",
-        "https://127.0.0.1:5173/v1",
+        "https://192.168.1.45:5173/v1",
         "https://127.0.0.1:5173/v1",
     ]:
         with pytest.raises(HTTPException) as caught:
@@ -101,18 +100,17 @@ def test_metadata_cannot_be_allowlisted(monkeypatch):
 def test_speech_allows_known_hosts_only():
     assert approved_speech_base("http://127.0.0.1:8880/v1", "kokoro") == "http://127.0.0.1:8880"
     assert approved_speech_base("http://localhost:8880/v1", "kokoro") == "http://localhost:8880"
-    assert approved_speech_base("http://127.0.0.1:8880/v1", "kokoro") == "http://127.0.0.1:8880"
-    assert approved_speech_base("http://127.0.0.1:8880", "kokoro") == "http://127.0.0.1:8880"
     assert approved_speech_base("https://api.openai.com/v1", "openai") == "https://api.openai.com:443"
     assert approved_speech_base("https://api.elevenlabs.io", "elevenlabs") == "https://api.elevenlabs.io:443"
     assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://127.0.0.1:7508"
     assert approved_speech_base("http://localhost:7508", "pocket") == "http://localhost:7508"
     assert approved_speech_base("http://[::1]:7508", "pocket") == "http://[::1]:7508"
-    assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://127.0.0.1:7508"
-    assert approved_speech_base("http://127.0.0.1:7510", "lfm") == "http://127.0.0.1:7510"
     assert approved_speech_base("http://127.0.0.1:7510", "lfm") == "http://127.0.0.1:7510"
     for url, vendor in [
         ("http://192.168.1.1:8880/v1", "kokoro"),
+        ("http://192.168.1.45:8880/v1", "kokoro"),
+        ("http://192.168.1.45:7508", "pocket"),
+        ("http://192.168.1.45:7510", "lfm"),
         ("http://192.168.1.1:7508", "pocket"),
         ("http://127.0.0.1:8000", "pocket"),
         ("http://127.0.0.1:8001", "pocket"),
@@ -121,7 +119,7 @@ def test_speech_allows_known_hosts_only():
         ("http://127.0.0.1:7508", "lfm"),
         ("http://127.0.0.1:7510", "pocket"),
         ("https://127.0.0.1:7508", "pocket"),
-        ("http://127.0.0.1:5173/v1", "openai"),
+        ("http://192.168.1.45:5173/v1", "openai"),
         ("http://127.0.0.1:11434/v1", "kokoro"),
         ("http://127.0.0.1:8880/v1", "openai"),
         ("https://api.openai.com/v1", "kokoro"),
@@ -221,11 +219,11 @@ def test_complete_uses_the_ollama_path(monkeypatch):
     )
     assert ok.status_code == 200
     assert posts == ["http://127.0.0.1:11434/v1/chat/completions"]
-    lan = TestClient(app).post(
+    llm = TestClient(app).post(
         "/v1/complete",
         json={"baseUrl": "http://127.0.0.1:5173/v1", "model": "qwen3:4b", "system": "s", "user": "u"},
     )
-    assert lan.status_code == 200
+    assert llm.status_code == 200
     assert posts == [
         "http://127.0.0.1:11434/v1/chat/completions",
         "http://127.0.0.1:5173/v1/chat/completions",
@@ -251,7 +249,6 @@ def test_speech_upstream_rewrites_approved_local_speech(monkeypatch):
     assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://pocket:7508"
     assert approved_speech_base("http://localhost:7508", "pocket") == "http://pocket:7508"
     assert approved_speech_base("http://[::1]:7508", "pocket") == "http://pocket:7508"
-    assert approved_speech_base("http://127.0.0.1:7508", "pocket") == "http://pocket:7508"
     assert approved_speech_base("http://127.0.0.1:8880/v1", "kokoro") == "http://kokoro:8880"
     assert approved_speech_base("https://api.openai.com/v1", "openai") == "https://api.openai.com:443"
 

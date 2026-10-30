@@ -175,7 +175,7 @@
 			<Card.Header>
 				<Card.Title>VLLM</Card.Title>
 				<Card.Description>
-					Ollama on this machine at port 11434, or an LLM at port 5173 on 127.0.0.1, localhost, or 127.0.0.1. Any other completion address is refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
+					Ollama on this machine at port 11434, or an LLM at port 5173 on 127.0.0.1, localhost, or ::1. Any other completion address is refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
