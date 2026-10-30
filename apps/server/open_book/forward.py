@@ -3,8 +3,9 @@
 Completion goes to an Ollama server. Speech goes to Kokoro, Pocket TTS, or LFM3 Audio on
 this machine, api.openai.com, or api.elevenlabs.io. Anything else is refused
 before a socket is opened, so a caller cannot use the proxy to reach the rest
-of the local network. Operators opt in to one extra host:port with
-OLLAMA_ALLOW or SPEECH_ALLOW.
+of the local network. Operators opt in to extra hosts with OLLAMA_ALLOW or
+SPEECH_ALLOW, in the environment or in apps/server/local.allow. That file is
+not committed.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import os
 import re
 import socket
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
@@ -71,7 +73,7 @@ def approved_completion_base(url: str) -> str:
         "Completion is only forwarded to Ollama on this machine at port 11434 "
         f"(http://127.0.0.1:{OLLAMA_PORT}/v1), to an LLM on port {LLM_PORT} at "
         "127.0.0.1, localhost, or ::1, to https://ollama.com, or to a host "
-        "listed in OLLAMA_ALLOW. "
+        "listed in OLLAMA_ALLOW or apps/server/local.allow. "
         f"Refused {target.scheme}://{_display(target.host, target.port)}."
     )
 
@@ -92,7 +94,8 @@ def approved_speech_base(url: str, vendor: str) -> str:
         "Speech is only forwarded to Kokoro on port 8880, Pocket TTS on port 7508, "
         "or LFM3 Audio on port 7510 "
         "at 127.0.0.1, localhost, or ::1, to https://api.openai.com, "
-        "to https://api.elevenlabs.io, or to a host:port listed in SPEECH_ALLOW. "
+        "to https://api.elevenlabs.io, or to a host:port listed in SPEECH_ALLOW "
+        "or apps/server/local.allow. "
         f"Refused {target.scheme}://{_display(target.host, target.port)}."
     )
 
@@ -229,8 +232,22 @@ def _allow_hit(target: Target, env_name: str, default_port: int | None) -> bool:
     return (target.host, target.port) in allowed
 
 
+_ALLOW_NAMES = ("OLLAMA_ALLOW", "SPEECH_ALLOW")
+
+
+def local_allow_file() -> Path:
+    override = os.environ.get("LOCAL_ALLOW_FILE", "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[1] / "local.allow"
+
+
 def _allowlist(env_name: str, default_port: int | None) -> set[tuple[str, int]]:
-    raw = os.environ.get(env_name, "")
+    raw = ",".join(
+        part
+        for part in (os.environ.get(env_name, ""), _local_allow_values()[env_name])
+        if part.strip()
+    )
     found: set[tuple[str, int]] = set()
     for part in raw.split(","):
         entry = part.strip()
@@ -241,6 +258,32 @@ def _allowlist(env_name: str, default_port: int | None) -> set[tuple[str, int]]:
         except ValueError as exc:
             raise HTTPException(500, f"{env_name} has an invalid entry: {entry}") from exc
     return found
+
+
+def _local_allow_values() -> dict[str, str]:
+    found = {name: "" for name in _ALLOW_NAMES}
+    path = local_allow_file()
+    if not path.is_file():
+        return found
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise HTTPException(500, "local.allow could not be read.") from exc
+    collected: dict[str, list[str]] = {name: [] for name in _ALLOW_NAMES}
+    for line in lines:
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        if "=" not in text:
+            raise HTTPException(500, f"local.allow has an invalid line: {text}")
+        key, value = text.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key not in collected:
+            raise HTTPException(500, f"local.allow has an unknown setting: {key}")
+        if value:
+            collected[key].append(value)
+    return {name: ",".join(values) for name, values in collected.items()}
 
 
 def _allow_entry(entry: str, default_port: int | None) -> tuple[str, int]:

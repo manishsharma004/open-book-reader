@@ -48,7 +48,9 @@ export const LFM_LANGS = [
 	'tr',
 	'zh'
 ] as const;
-const POCKET_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+function isHttpHost(url: URL | null): url is URL {
+	return !!url && url.protocol === 'http:' && url.hostname.length > 0;
+}
 
 export type Endpoint = {
 	enabled: boolean;
@@ -150,7 +152,7 @@ export function mergeSettings(raw: Record<string, unknown> | undefined): AppSett
 	if (vendorName === 'pocket') {
 		try {
 			const current = new URL(baseUrl);
-			if (current.port === '8000' && POCKET_HOSTS.has(current.hostname)) {
+			if (current.port === '8000' && isHttpHost(current)) {
 				current.port = POCKET_PORT;
 				current.pathname = '';
 				current.search = '';
@@ -211,13 +213,13 @@ function speechUrl(value: string) {
 export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 	if (tts.vendor === 'pocket' && previous !== 'pocket') {
 		const current = speechUrl(tts.baseUrl);
-		if (current && (current.port === '8880' || current.port === '8000') && POCKET_HOSTS.has(current.hostname)) {
+		if (isHttpHost(current) && (current.port === '8880' || current.port === '8000')) {
 			current.port = POCKET_PORT;
 			current.pathname = '';
 			current.search = '';
 			current.hash = '';
 			tts.baseUrl = current.origin;
-		} else if (!current || current.port !== POCKET_PORT || !POCKET_HOSTS.has(current.hostname)) {
+		} else if (!isHttpHost(current) || current.port !== POCKET_PORT) {
 			tts.baseUrl = `http://127.0.0.1:${POCKET_PORT}`;
 		}
 		if (!tts.model || tts.model === 'kokoro' || (LFM_LANGS as readonly string[]).includes(tts.model) || tts.model.startsWith('gpt-') || tts.model.startsWith('eleven')) {
@@ -238,7 +240,13 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 	}
 	if (tts.vendor === 'lfm' && previous !== 'lfm') {
 		const current = speechUrl(tts.baseUrl);
-		if (!current || current.port !== LFM_PORT || !POCKET_HOSTS.has(current.hostname)) {
+		if (isHttpHost(current) && (current.port === '8880' || current.port === POCKET_PORT || current.port === '8000')) {
+			current.port = LFM_PORT;
+			current.pathname = '';
+			current.search = '';
+			current.hash = '';
+			tts.baseUrl = current.origin;
+		} else if (!isHttpHost(current) || current.port !== LFM_PORT) {
 			tts.baseUrl = `http://127.0.0.1:${LFM_PORT}`;
 		}
 		if (!(LFM_LANGS as readonly string[]).includes(tts.model)) tts.model = LFM_LANG;
@@ -246,7 +254,7 @@ export function applyTtsVendorDefaults(tts: TtsSettings, previous: TtsVendor) {
 	}
 	if (tts.vendor === 'kokoro' && (previous === 'pocket' || previous === 'pocket-device' || previous === 'lfm')) {
 		const current = speechUrl(tts.baseUrl);
-		if (current && (current.port === POCKET_PORT || current.port === LFM_PORT) && POCKET_HOSTS.has(current.hostname)) {
+		if (isHttpHost(current) && (current.port === POCKET_PORT || current.port === LFM_PORT)) {
 			current.port = '8880';
 			current.pathname = '/v1';
 			tts.baseUrl = `${current.origin}/v1`;

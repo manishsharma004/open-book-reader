@@ -12,6 +12,8 @@ cd ../server && python3 -m venv .venv && .venv/bin/pip install -r requirements.t
 
 Open `http://localhost:7507`. Use a free port from 7500 to 7510. The server reads `apps/web/build` from disk, so a web-only change needs `npm run build` and does not need a server restart.
 
+Internal addresses stay out of git. Copy `apps/server/local.allow.example` to `apps/server/local.allow`. Each line is `OLLAMA_ALLOW` or `SPEECH_ALLOW` with one host, the same entries as those environment variables. The file and the environment are combined. A completion entry without a port uses 11434. A speech entry includes a port. Link-local and metadata addresses are still refused. `LOCAL_ALLOW_FILE` can point at another path. The file is not copied into the Docker image; mount it or set the environment variables for Compose.
+
 The same app, Kokoro, and Pocket TTS also start from Docker Compose. Run it from the repository root. One profile builds Pocket: `cpu`, `cuda`, or `rocm`. CUDA reserves the NVIDIA GPUs. ROCm passes `/dev/kfd` and `/dev/dri`. Pocket uses the GPU when that card has at least 1 GB free. `HF_TOKEN` is the Hugging Face token for the gated Pocket weights. Docker Compose v2 is the command (`docker compose`).
 
 ```bash

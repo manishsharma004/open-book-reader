@@ -4,3 +4,4 @@ __pycache__/
 
 .vendor/
 var/
+apps/server/local.allow

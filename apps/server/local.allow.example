@@ -1,0 +1,11 @@
+# Copy this file to local.allow. Git does not track local.allow.
+# Each line is one host, same names as the environment variables.
+# A completion entry without a port uses 11434. A speech entry must include a port.
+# Several lines with the same name are combined with the environment.
+# Link-local and metadata addresses are still refused.
+#
+# OLLAMA_ALLOW=192.168.1.40:5173
+# OLLAMA_ALLOW=192.168.1.40:11434
+# SPEECH_ALLOW=192.168.1.40:8880
+# SPEECH_ALLOW=192.168.1.40:7508
+# SPEECH_ALLOW=192.168.1.40:7510

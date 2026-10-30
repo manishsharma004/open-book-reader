@@ -12,10 +12,11 @@ from open_book.main import app
 
 
 @pytest.fixture(autouse=True)
-def clear_allow(monkeypatch):
+def clear_allow(monkeypatch, tmp_path):
     monkeypatch.delenv("OLLAMA_ALLOW", raising=False)
     monkeypatch.delenv("SPEECH_ALLOW", raising=False)
     monkeypatch.delenv("SPEECH_UPSTREAM", raising=False)
+    monkeypatch.setenv("LOCAL_ALLOW_FILE", str(tmp_path / "missing.allow"))
 
 
 def test_completion_allows_llm_port_on_named_hosts():
@@ -88,6 +89,37 @@ def test_ollama_allow_is_one_host(monkeypatch):
     with pytest.raises(HTTPException) as caught:
         approved_completion_base("http://[fe80::1]:11434/v1")
     assert caught.value.detail == "That address is never forwarded to."
+
+
+def test_local_allow_file_adds_hosts(monkeypatch, tmp_path):
+    path = tmp_path / "local.allow"
+    path.write_text(
+        "\n".join(
+            [
+                "# this machine",
+                "OLLAMA_ALLOW=192.168.1.40:5173",
+                "SPEECH_ALLOW=192.168.1.40:7508",
+                "SPEECH_ALLOW=192.168.1.40:8880",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_ALLOW_FILE", str(path))
+    assert approved_completion_base("http://192.168.1.40:5173/v1") == "http://192.168.1.40:5173"
+    assert approved_speech_base("http://192.168.1.40:7508", "pocket") == "http://192.168.1.40:7508"
+    assert approved_speech_base("http://192.168.1.40:8880/v1", "kokoro") == "http://192.168.1.40:8880"
+    with pytest.raises(HTTPException):
+        approved_completion_base("http://192.168.1.41:5173/v1")
+
+
+def test_local_allow_file_rejects_an_unknown_setting(monkeypatch, tmp_path):
+    path = tmp_path / "local.allow"
+    path.write_text("LAN_HOST=192.168.1.40\n", encoding="utf-8")
+    monkeypatch.setenv("LOCAL_ALLOW_FILE", str(path))
+    with pytest.raises(HTTPException) as caught:
+        approved_completion_base("http://192.168.1.40:11434/v1")
+    assert caught.value.status_code == 500
+    assert "unknown setting" in caught.value.detail
 
 
 def test_metadata_cannot_be_allowlisted(monkeypatch):

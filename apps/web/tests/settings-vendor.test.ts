@@ -24,10 +24,10 @@ test('a saved pocket vendor stays pocket', () => {
 
 test('choosing pocket rewrites a kokoro host and keeps the machine', () => {
 	const settings = defaultSettings();
-	settings.tts.baseUrl = 'http://127.0.0.1:8880/v1';
+	settings.tts.baseUrl = 'http://192.168.1.40:8880/v1';
 	settings.tts.vendor = 'pocket';
 	applyTtsVendorDefaults(settings.tts, 'kokoro');
-	assert.equal(settings.tts.baseUrl, 'http://127.0.0.1:7508');
+	assert.equal(settings.tts.baseUrl, 'http://192.168.1.40:7508');
 	assert.equal(settings.tts.model, POCKET_MODEL);
 	assert.equal(settings.tts.voice, 'alba');
 });

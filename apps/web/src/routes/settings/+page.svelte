@@ -175,7 +175,7 @@
 			<Card.Header>
 				<Card.Title>VLLM</Card.Title>
 				<Card.Description>
-					Ollama on this machine at port 11434, or an LLM at port 5173 on 127.0.0.1, localhost, or ::1. Any other completion address is refused unless that host is listed in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
+					Ollama on this machine at port 11434, or an LLM at port 5173 on 127.0.0.1, localhost, or ::1. Any other completion address is refused unless that host is listed in local.allow on the app server or in OLLAMA_ALLOW. Used for emotion when emotion analysis is off and this one is on.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">
@@ -235,7 +235,7 @@
 			<Card.Header>
 				<Card.Title>TTS</Card.Title>
 				<Card.Description>
-					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. LFM3 Audio on port 7510 speaks with female or male. Start it with scripts/lfm.sh. It loads the Q4_K_M GGUF and the Q8 audio projector, about 1.4 GB, through llama.cpp on the RX 5500M when Vulkan can see that card. It does not clone, and the language field is a code such as en. On-device Pocket TTS loads an ONNX bundle in this browser. The base URL can be a Hugging Face repo, a folder in that repo, or the folder that contains bundle.json. Quantized `*_int8.onnx` files are used when that folder has them, and `.safetensors` or `.npy` voice embeddings in the repo join the built-in voices. WebNN uses the phone NPU when the page is a secure context and the browser exposes it, and otherwise the same graph runs in WebAssembly. The text is not sent to a server. Choosing Pocket points this form at port 7508. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
+					Browser voice changes pitch and rate for emotion. Kokoro on port 8880 speaks a preset voice and does not clone. Pocket on port 7508 clones from the sample below and runs on the CPU, so an 8GB GPU can stay with the text model. LFM3 Audio on port 7510 speaks with female or male. Start it with scripts/lfm.sh. It loads the Q4_K_M GGUF and the Q8 audio projector, about 1.4 GB, through llama.cpp on the RX 5500M when Vulkan can see that card. It does not clone, and the language field is a code such as en. On-device Pocket TTS loads an ONNX bundle in this browser. The base URL can be a Hugging Face repo, a folder in that repo, or the folder that contains bundle.json. Quantized `*_int8.onnx` files are used when that folder has them, and `.safetensors` or `.npy` voice embeddings in the repo join the built-in voices. WebNN uses the phone NPU when the page is a secure context and the browser exposes it, and otherwise the same graph runs in WebAssembly. The text is not sent to a server. Choosing Pocket points this form at port 7508 and keeps the host already in the base URL. A host other than loopback is refused unless local.allow on the app server or SPEECH_ALLOW names it. The server also accepts OpenAI and ElevenLabs, and ElevenLabs is not the cloning path for this machine.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="grid gap-3">

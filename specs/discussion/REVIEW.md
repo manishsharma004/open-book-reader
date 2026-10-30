@@ -42,6 +42,7 @@ Summary of the most important changes:
 | O12 | Low | No way to check the server version or whether audio conversion works | `GET /v1/health`, shown in Settings → About | `DESIGN.md` §4.3, `PROVIDERS.md` §3.2 |
 | O13 | Low | Concurrency against local hosts was unbounded. Ollama serves one request at a time by default | At most two realtime and four batch calls per assignment | `PROVIDERS.md` §3.4 |
 | O15 | Medium | A household LAN address was a built-in completion and speech target, so the proxy named one private machine | Built-in local targets are loopback only: `127.0.0.1`, `localhost`, and `::1`. Another machine is one `OLLAMA_ALLOW` or `SPEECH_ALLOW` entry | `PROVIDERS.md` §4 |
+| O16 | Medium | An extra internal address had to be set in the process environment, so it was easy to commit or to lose between restarts | `apps/server/local.allow` holds the same entries and is gitignored. `local.allow.example` shows the shape and contains no address. `LOCAL_ALLOW_FILE` selects another path. The file and the environment are combined. Link-local and metadata addresses stay refused | `PROVIDERS.md` §4 |
 
 ## 2. Feasibility
 
