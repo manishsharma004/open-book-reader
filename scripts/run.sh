@@ -51,6 +51,11 @@ this script. The token is passed into the Pocket container and is not written
 into the image. Without it, builtin voices cannot download those weights.
 On-device Pocket in the browser does not use this token.
 
+This script runs, from the repository root:
+  docker compose --profile cpu up --build
+  docker compose --profile cuda up --build
+  docker compose --profile rocm up --build
+
 Examples:
   scripts/run.sh --torch-backend cpu
   HF_TOKEN=hf_... scripts/run.sh --torch-backend rocm
@@ -61,7 +66,7 @@ Stop the stack from the repository root, with the same backend you started:
   docker compose --profile cuda down
   docker compose --profile rocm down
 
-Docker Compose v2 is required (`docker compose`, not `docker-compose`).
+Use Docker Compose v2: the command is `docker compose`.
 EOF
 }
 

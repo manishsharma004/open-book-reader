@@ -1,6 +1,10 @@
 # Open Book Reader.
-# Start it with scripts/run.sh --torch-backend cpu|cuda|rocm.
-# That script enables one Pocket profile. web and kokoro always start.
+# From the repository root:
+#   docker compose --profile cpu up --build
+#   docker compose --profile cuda up --build
+#   docker compose --profile rocm up --build
+# scripts/run.sh --torch-backend cpu|cuda|rocm runs the same command.
+# One profile enables Pocket. web and kokoro always start.
 # Kokoro is the CPU image and is not published. Pocket is published on 7508.
 # The browser still calls only http://localhost:7507.
 

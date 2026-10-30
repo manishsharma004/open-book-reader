@@ -12,7 +12,23 @@ cd ../server && python3 -m venv .venv && .venv/bin/pip install -r requirements.t
 
 Open `http://localhost:7507`. Use a free port from 7500 to 7510. The server reads `apps/web/build` from disk, so a web-only change needs `npm run build` and does not need a server restart.
 
-The same app, Kokoro, and Pocket TTS also start from Docker. `scripts/run.sh --help` lists the GPU requirements. `--torch-backend` chooses the PyTorch wheel in the Pocket image: `cpu`, `cuda`, or `rocm`. CUDA reserves the NVIDIA GPUs. ROCm passes `/dev/kfd` and `/dev/dri`. Pocket uses the GPU when that card has at least 1 GB free.
+The same app, Kokoro, and Pocket TTS also start from Docker Compose. Run it from the repository root. One profile builds Pocket: `cpu`, `cuda`, or `rocm`. CUDA reserves the NVIDIA GPUs. ROCm passes `/dev/kfd` and `/dev/dri`. Pocket uses the GPU when that card has at least 1 GB free. `HF_TOKEN` is the Hugging Face token for the gated Pocket weights. Docker Compose v2 is the command (`docker compose`).
+
+```bash
+docker compose --profile cpu up --build
+HF_TOKEN=hf_... docker compose --profile rocm up --build
+docker compose --profile cuda up --build
+```
+
+Stop with the same profile:
+
+```bash
+docker compose --profile cpu down
+docker compose --profile rocm down
+docker compose --profile cuda down
+```
+
+`scripts/run.sh --torch-backend cpu` runs that same `up --build`. `scripts/run.sh --help` lists the GPU checks the profile needs.
 
 ```bash
 scripts/run.sh --torch-backend cpu
